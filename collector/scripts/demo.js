@@ -97,11 +97,14 @@ const fake = http.createServer((request, response) => {
   return json(404, {});
 });
 
+// The demo's collector port (8090 unless DEMO_API_PORT is set, e.g. when the real collector runs on this Mac)
+const API_PORT = process.env.DEMO_API_PORT || '8090';
+
 const site = http.createServer((request, response) => {
   const url = new URL(request.url, 'http://x');
   if (url.pathname === '/config.js') {
     response.writeHead(200, { 'Content-Type': 'text/javascript' });
-    return response.end("window.STATS_API = 'http://127.0.0.1:8090';");
+    return response.end(`window.STATS_API = 'http://127.0.0.1:${API_PORT}';`);
   }
   const file = path.join(SITE, url.pathname === '/' ? 'index.html' : path.normalize(url.pathname));
   if (!file.startsWith(SITE) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { response.writeHead(404); return response.end(); }
@@ -116,12 +119,11 @@ fake.listen(8099, '127.0.0.1', async () => {
   fs.writeFileSync(gamesFile, JSON.stringify([
     { id: 'roll-a-car-show', name: 'Roll a Car Show', universeId: 101, store: 'Stats_v1', liveMap: 'StatsLive_v1', journeyFunnel: 'Onboarding', slot: 1, feedback: { store: 'Feedback_v1', pageSize: 50 } },
     { id: 'cut-the-chocolate', name: 'Cut The Chocolate', universeId: 102, slot: 2 },
-    { id: 'find-the-pirate-coin', name: 'Find The Pirate Coin', universeId: null, slot: 3 },
-    { id: 'keyboard-farm', name: 'Keyboard Farm', universeId: null, slot: 4 },
+    { id: 'keyboard-farm', name: 'Keyboard Farm', universeId: null, slot: 5 },
   ]));
   Object.assign(process.env, {
     OPEN_CLOUD_BASE: 'http://127.0.0.1:8099', ROBLOX_OPEN_CLOUD_API_KEY: 'demo', DASHBOARD_SECRET: 'demo-secret-demo-secret-1234',
-    ALLOWED_ORIGINS: 'http://127.0.0.1:8091', GAMES_FILE: gamesFile, DATA_DIR: dir, PORT: '8090',
+    ALLOWED_ORIGINS: 'http://127.0.0.1:8091', GAMES_FILE: gamesFile, DATA_DIR: dir, PORT: API_PORT,
   });
   // 24 hours of online samples, as if the collector had been running
   const { openDatabase } = await import('../src/db.js');

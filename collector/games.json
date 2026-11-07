@@ -11,7 +11,22 @@
       "store": "Feedback_v1",
       "pageSize": 50
     },
-    "slot": 1
+    "slot": 1,
+    "funnelNotes": {
+      "Onboarding": "A new player's first minutes: loading, the intro and the tutorial, then the first lessons and rolls. This is where new players decide whether to stay.",
+      "Lessons": "The tutorial lessons that unlock later (achievements, upgrades, the garage), the first time each one is finished.",
+      "Rebirths": "How far new players get through rebirths 1, 2, 3, 5, 10 and 20: long-term progression.",
+      "Shop": "Opening the shop, picking an item and buying it: do players who browse end up buying?",
+      "Purchase": "Every Robux purchase prompt, wherever it comes from, and whether it was bought.",
+      "OfflineEarnings": "The offline earnings screen when a player comes back, and whether they claim it.",
+      "Rebirth": "Being able to afford a rebirth, opening the rebirth menu, and rebirthing.",
+      "WheelSpin": "Opening the wheel, spinning it and getting the reward.",
+      "DailyRewards": "Opening daily rewards and claiming one.",
+      "GroupReward": "Using the group chest, being in the group and claiming the reward: how many join the group for it.",
+      "LeavingReward": "The reward offered when a player tries to leave, revealing it, and staying: does it keep players in the game?",
+      "SessionTime": "How long players stay in one session: joining, then each minute up to 5 and every 5 minutes up to an hour.",
+      "StepEvents": "Every time a player reaches an onboarding step, counted the way Roblox's own funnels count it, so a player who repeats a step counts again. After the tutorial, steps can be done in any order."
+    }
   },
   {
     "id": "odd-game-about-sausage",
@@ -24,12 +39,6 @@
     "name": "Cut The Chocolate",
     "universeId": null,
     "slot": 3
-  },
-  {
-    "id": "find-the-pirate-coin",
-    "name": "Find The Pirate Coin",
-    "universeId": null,
-    "slot": 4
   },
   {
     "id": "keyboard-farm",

@@ -5,7 +5,8 @@
 
 import crypto from 'node:crypto';
 import * as S from './stats.js';
-import { overviewTab, liveTab, funnelsTab, ratio } from './query.js';
+import { overviewTab, liveTab, funnelsTab, funnelDefsOf, ratio } from './query.js';
+import { presentFunnels } from './present.js';
 
 const RANGE_IDS = Object.keys(S.RANGES);
 const SAMPLE_BIN = 300; // the online line's bins: 5 minutes
@@ -106,7 +107,12 @@ export function buildViews(games, db, at = S.now()) {
         const overview = overviewTab(game, read, rangeId, at);
         allTotals[rangeId].push({ game, totals: overview.totals, status });
         views.set(`/v1/games/${game.id}/overview?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: overview.widgets }));
-        views.set(`/v1/games/${game.id}/funnels?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: funnelsTab(game, read, rangeId, at).widgets }));
+        const funnels = presentFunnels(funnelsTab(game, read, rangeId, at).widgets, {
+          funnels: funnelDefsOf(read(S.DEFS_KEY)),
+          notes: game.funnelNotes || {},
+          rangeLabel: rangeId === '24h' ? 'last day' : `last ${S.RANGES[rangeId].count} days`,
+        });
+        views.set(`/v1/games/${game.id}/funnels?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: funnels }));
       }
       live = liveTab(game, read, servers, at);
       views.set(`/v1/games/${game.id}/live`, withEtag({ ...base, widgets: live.widgets }));
