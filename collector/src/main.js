@@ -7,8 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { openDatabase } from './db.js';
 import { createClient } from './opencloud.js';
 import { createPoller } from './poller.js';
-import { buildViews, gameStatus } from './views.js';
+import { buildViews, gameStatus, viewGate } from './views.js';
 import { createServer } from './server.js';
+import { createAuth } from './auth.js';
 import * as S from './stats.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,6 +65,7 @@ export function main() {
   const client = createClient(process.env.ROBLOX_OPEN_CLOUD_API_KEY);
 
   let views = new Map();
+  let scoped = new Map(); // "<game ids>" -> views built for just those games (people who see some of them)
   let lastBuild = 0;
   let buildQueued = false;
   const rebuild = () => {
@@ -73,6 +75,7 @@ export function main() {
       buildQueued = false;
       try {
         views = buildViews(games, db);
+        scoped = new Map();
         lastBuild = S.now();
       } catch (error) {
         log(`building views failed: ${error.stack || error}`);
@@ -91,14 +94,30 @@ export function main() {
     return { ok: watched.length > 0 && failing.length === 0, games: list, viewsBuiltAt: lastBuild };
   }
 
-  const server = createServer({
+  const auth = createAuth({
+    db, games, log,
     secret: process.env.DASHBOARD_SECRET,
+    oauth: {
+      clientId: process.env.ROBLOX_OAUTH_CLIENT_ID,
+      clientSecret: process.env.ROBLOX_OAUTH_CLIENT_SECRET,
+      publicUrl: process.env.PUBLIC_URL,
+      scopes: process.env.ROBLOX_OAUTH_SCOPES,
+      base: process.env.ROBLOX_APIS_BASE,
+    },
+  });
+  const getView = viewGate(() => views, (allowed) => {
+    const key = [...allowed].sort().join(',');
+    if (!scoped.has(key)) {
+      if (scoped.size > 50) scoped = new Map();
+      scoped.set(key, buildViews(games.filter((game) => allowed.includes(game.id)), db));
+    }
+    return scoped.get(key);
+  });
+  const server = createServer({
+    auth,
     allowedOrigins: process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
     siteDir: path.resolve(ROOT, '..', 'site'),
-    getView: (pathname, params) => {
-      const range = params.get('range');
-      return views.get(range ? `${pathname}?range=${range}` : pathname) || null;
-    },
+    getView,
     health,
     log,
   });

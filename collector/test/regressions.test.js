@@ -133,7 +133,7 @@ test('server: sessions survive a restart, bad bodies are 400, /health is private
   base = await listen(server);
   assert.equal((await fetch(`${base}/v1/overview`, { headers: { ...origin, Authorization: `Bearer ${token}` } })).status, 200, 'still signed in');
   assert.equal((await fetch(`${base}/v1/overview`, { headers: { ...origin, Authorization: `Bearer ${token}x` } })).status, 401, 'tampered token');
-  const expired = `${Date.now() - 1000}.${token.split('.')[1]}`;
+  const expired = `${Date.now() - 1000}.owner.${token.split('.')[2]}`;
   assert.equal((await fetch(`${base}/v1/overview`, { headers: { ...origin, Authorization: `Bearer ${expired}` } })).status, 401, 'expired or re-dated token');
   server.close();
   const other = createServer({ ...options, secret: 'a-different-secret-for-tests-4567' });

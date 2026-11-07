@@ -358,3 +358,18 @@ dialog .button { height: 40px; justify-content: center; }
   .help dl { grid-template-columns: 1fr; gap: 2px; }
   .help dd { margin-bottom: 8px; }
 }
+
+/* Sign-in and People */
+#sign-in .button.primary { width: 100%; margin-top: 14px; text-decoration: none; }
+#sign-in .error { margin-top: 10px; }
+.secret-sign-in { margin-top: 14px; font-size: 12px; color: var(--muted-foreground); }
+.secret-sign-in summary { cursor: pointer; }
+.who { font-size: 12px; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who:empty { display: none; }
+.invite-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.invite-form .input { flex: 1; min-width: 180px; }
+.invite-result { display: grid; gap: 6px; margin-top: 12px; }
+.invite-result .row { display: flex; gap: 8px; }
+.invite-result .input { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px; }
+.button.small { height: 26px; font-size: 12px; }
+.button.danger { color: var(--error); }

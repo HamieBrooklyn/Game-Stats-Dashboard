@@ -36,7 +36,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         <span>Feedback</span>
       </a>
+      <a class="nav-item" href="#/people" data-page="people" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>
+        <span>People</span>
+      </a>
       <div class="sidebar-foot">
+        <span class="who" id="who"></span>
         <span class="status" id="connection"><span class="dot pending"></span>Connecting…</span>
         <button class="nav-item" type="button" id="sign-out" style="height:28px;padding:0">Sign out</button>
       </div>
@@ -66,14 +71,18 @@
   </div>
 
   <dialog id="sign-in">
-    <h2>Sign in</h2>
-    <p class="note">Your dashboard secret (from the collector's .env). It's swapped for a session that lasts 12 hours in this tab only, and isn't stored.</p>
-    <form method="dialog" id="sign-in-form">
-      <label class="sr-only" for="secret">Secret</label>
-      <input class="input" id="secret" type="password" autocomplete="current-password" placeholder="Secret" required>
-      <p class="note error" id="sign-in-error" hidden></p>
-      <button class="button primary" type="submit">Sign in</button>
-    </form>
+    <h2 id="sign-in-title">Sign in</h2>
+    <p class="note" id="sign-in-note">Sign in with your Roblox account. Roblox asks which experiences to share: pick the games you work on.</p>
+    <p class="note error" id="sign-in-error" role="alert" hidden></p>
+    <a class="button primary" id="roblox-sign-in" href="/auth/roblox" hidden>Sign in with Roblox</a>
+    <details class="secret-sign-in" id="secret-box">
+      <summary>Owner: use the dashboard secret</summary>
+      <form method="dialog" id="sign-in-form">
+        <label class="sr-only" for="secret">Secret</label>
+        <input class="input" id="secret" type="password" autocomplete="current-password" placeholder="Secret" required>
+        <button class="button" type="submit">Sign in with the secret</button>
+      </form>
+    </details>
   </dialog>
 </body>
 </html>

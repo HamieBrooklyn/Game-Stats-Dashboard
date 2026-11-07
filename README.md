@@ -8,9 +8,9 @@ Roblox game servers ── every 60 s ──> each game's DataStore + MemoryStor
                                               ▼
 Mac: collector (Node 24, SQLite)  ── launchd, starts at boot, restarts if it stops
       reads every game, keeps a copy, builds the same numbers as the in-game panel, serves the site and its API
-                                              │ http://127.0.0.1:8090 (this Mac only)
+                                              │ http://127.0.0.1:8090, published by its own Cloudflare Tunnel
                                               ▼
-Browser: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, the rest every 60 s
+Browser: https://stats.pokepon.org ── sign in with Roblox (invite only), sees only their games
 ```
 
 **Why it's accurate:** the games already write their stats to their own DataStores; the collector only reads them, so nothing is counted twice and nothing is lost when the Mac is off (it catches up). The numbers come from a port of the panel's own math, checked against the package's real Luau (`collector/test/parity.test.js`). Days and hours are UTC, like the panel. Buckets are re-read until they're final (15 minutes after their hour/day ended) and the last two days are re-read every hour. What the collector adds on top, the 15-second "players online" samples, is backed up daily.
@@ -48,7 +48,13 @@ The steps by hand:
 4. **`collector/.env`**: copy `collector/.env.example`, fill in the key, a dashboard secret (`openssl rand -base64 33`), and `ALLOWED_ORIGINS` as in the example. Optional `HEALTHCHECK_URL`: a free [healthchecks.io](https://healthchecks.io) ping, so you get an email when the Mac or collection stops.
 5. **Games**: copy `collector/games.json` to `collector/games.local.json` (git ignores it, so the Mac's checkout stays clean and keeps updating) and fill in each game's universe id (Creator Dashboard → the game → the id in the URL), its stats store (`SpotlightAdminStats_v1` unless the game set `stats.store`), live map, and `feedback` if it keeps feedback pages (`Meta` + `Page_N`).
    To change the list for everyone instead, edit `games.json` on GitHub.
-6. **Reaching it from outside this Mac** is optional and off by default. The collector only listens on 127.0.0.1. To add a Cloudflare Tunnel: `cloudflared tunnel login`, `cloudflared tunnel create game-stats`, `cloudflared tunnel route dns game-stats stats-api.<your-domain>`, then write `~/.cloudflared/game-stats.yml` from `deploy/cloudflared.example.yml` (its own file, so it can't touch another tunnel on the Mac), and add the site's origin to `ALLOWED_ORIGINS`.
+6. **Public address** (optional; without it the dashboard is only on this Mac). Its own Cloudflare Tunnel, so another tunnel on the Mac is never touched:
+   ```
+   cloudflared tunnel create game-stats
+   # write ~/.cloudflared/game-stats.yml from deploy/cloudflared.example.yml, then:
+   cloudflared --config ~/.cloudflared/game-stats.yml tunnel route dns --overwrite-dns <tunnel id> stats.<your-domain>
+   ```
+   Pass `--config` (and the tunnel id) to `route dns`: without it, cloudflared takes the tunnel from `~/.cloudflared/config.yml` and points the name at that tunnel instead. Add the address to `ALLOWED_ORIGINS` and set `PUBLIC_URL`.
 7. **Install**: `sudo bash deploy/install-mac.sh` (it finds Homebrew's `node@24`; for a Node elsewhere: `sudo NODE_BIN=/path/to/node bash deploy/install-mac.sh`) — never sleep and restart after a power cut, the collector (and the optional tunnel) start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
 8. **Check**: `curl -s http://127.0.0.1:8090/health` says `"ok": true` once every game with stats is read (it only answers on the Mac itself).
 
@@ -58,7 +64,21 @@ After pulling changes to `deploy/` (the launchd files), run the install again; e
 
 ## Open the dashboard
 
-Go to http://127.0.0.1:8090 on the Mac and enter the dashboard secret. It's swapped for a 12-hour session kept in that tab only.
+https://stats.pokepon.org (or http://127.0.0.1:8090 on the Mac).
+
+## Sign in with Roblox, invites and permissions
+
+- **Who gets in:** only people with an invite. The owner makes a link on the **People** page (or `node scripts/invite.js` on the Mac); it works once and expires in 7 days. After that they're a member and sign in with Roblox any time. Removing someone on People signs them out at once.
+- **What they see:** at every sign-in, Roblox's consent screen asks which experiences to share and only lists ones their Roblox account can access. They see the dashboard's games among those, and nothing else: the all-games totals and feedback are built from their games alone. The owner sees every game. Signing in again updates their games.
+- **What's kept:** their Roblox user id, username, display name and which of the games they shared. Roblox's tokens are used once at sign-in and revoked.
+- **The owner's secret** (`DASHBOARD_SECRET`) still signs in as the owner, from the Mac or anywhere: it's the fallback if Roblox sign-in breaks.
+
+**Setting it up (once):**
+1. Creator Dashboard → **OAuth 2.0 Apps** → Create. Redirect URL: `https://stats.pokepon.org/auth/callback`. Permissions: `openid`, `profile`, and one experience permission, `universe-datastores.objects:read` (that's what makes Roblox ask which experiences to share; the dashboard never uses it to read anything). If Roblox doesn't offer it, pick another read permission on experiences and put the full list in `ROBLOX_OAUTH_SCOPES`.
+2. Put its client id and secret in `collector/.env` (`ROBLOX_OAUTH_CLIENT_ID`, `ROBLOX_OAUTH_CLIENT_SECRET`) with `PUBLIC_URL`, and restart the collector.
+3. Make your own owner invite on the Mac: `cd collector && node scripts/invite.js --owner`, open it, sign in with Roblox.
+
+An app Roblox hasn't reviewed works for up to 10 different Roblox accounts; for more, submit it for review.
 
 ## Host the site somewhere else (optional)
 

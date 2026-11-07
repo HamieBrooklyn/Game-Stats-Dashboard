@@ -1,22 +1,20 @@
-// The dashboard and its API, on 127.0.0.1 only. The Mac serves the site itself (siteDir) at
-// http://127.0.0.1:8090, so nothing has to be published; a tunnel in front of it is optional. Private:
-// - POST /v1/session { secret } trades the admin secret (DASHBOARD_SECRET) for a session token that lasts
-//   SESSION_HOURS; the page keeps it in sessionStorage (this tab only) and sends it as a Bearer header.
-//   Tokens are signed (expiry + HMAC of it with the secret), so restarts don't sign anyone out and changing
-//   the secret signs everyone out. Wrong secrets are rate-limited per address and overall. Nothing secret
-//   ever goes in a URL.
-// - Every /v1 view needs that token. Responses are never cached by browsers or Cloudflare (no-store), and an
-//   unchanged view answers 304 to If-None-Match.
+// The dashboard and its API, on 127.0.0.1 only. The Mac serves the site itself (siteDir); the Cloudflare tunnel
+// publishes it at the public address. Who sees what is auth.js's job:
+// - GET /auth/roblox?invite=.. and /auth/callback: Sign in with Roblox (invites, games from Roblox's consent).
+// - POST /v1/session { secret }: the owner's secret, swapped for a 12-hour session token (Bearer). Wrong secrets
+//   are rate-limited per address and overall. Nothing secret ever goes in a URL except a single-use invite.
+// - Every /v1 view needs a session and only shows that person's games (getView gets who is asking).
+//   Responses are never cached by browsers or Cloudflare (no-store); an unchanged view answers 304.
+// - /v1/admin/*: the owner's People page (invites, members).
 // - CORS allows only the dashboard's own origin(s) (ALLOWED_ORIGINS).
 // - GET /health says whether collection works (no numbers), for watchdogs on the Mac itself: requests that
 //   came through the tunnel (they carry cf-connecting-ip) get 404.
 
 import http from 'node:http';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { createAuth } from './auth.js';
 import path from 'node:path';
 
-const SESSION_HOURS = 12;
 const MAX_FAILS = 5; // wrong secrets per address per FAIL_WINDOW
 const FAIL_WINDOW = 15 * 60 * 1000;
 const MAX_FAILS_TOTAL = 50; // wrong secrets from everyone per FAIL_WINDOW
@@ -38,12 +36,13 @@ function loadSite(siteDir) {
   return files;
 }
 
-export function createServer({ secret, allowedOrigins, getView, health, log, siteDir }) {
+// auth: createAuth(...) (auth.js). getView(pathname, params, principal) answers a view for that person or null.
+// (Given only `secret`, it's the secret alone, with no Roblox sign-in: for tests and the demo.)
+export function createServer({ auth, secret, allowedOrigins, getView, health, log, siteDir }) {
+  auth = auth || createAuth({ db: { member: () => undefined }, games: [], secret });
   const site = loadSite(siteDir);
   const fails = new Map(); // address -> [times]
   let allFails = []; // times, everyone
-  const secretHash = crypto.createHash('sha256').update(secret).digest();
-  const sign = (expires) => crypto.createHmac('sha256', secret).update(`session:${expires}`).digest('base64url');
 
   const addressOf = (request) => String(request.headers['cf-connecting-ip'] || request.socket.remoteAddress || '');
 
@@ -61,22 +60,14 @@ export function createServer({ secret, allowedOrigins, getView, health, log, sit
     if (fails.size > MAX_TRACKED) for (const key of [...fails.keys()].slice(0, fails.size - MAX_TRACKED)) fails.delete(key);
   }
 
-  function checkSecret(given) {
-    const hash = crypto.createHash('sha256').update(String(given || '')).digest();
-    return crypto.timingSafeEqual(hash, secretHash);
-  }
-
-  function authorized(request) {
-    const match = /^Bearer (\d+)\.([\w-]+)$/.exec(request.headers.authorization || '');
-    if (!match || Number(match[1]) < Date.now()) return false;
-    const expected = Buffer.from(sign(match[1]));
-    const given = Buffer.from(match[2]);
-    return given.length === expected.length && crypto.timingSafeEqual(given, expected);
-  }
-
   function send(response, status, body, headers = {}) {
     response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
     response.end(body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body));
+  }
+
+  function redirect(response, { location, cookies = [] }) {
+    response.writeHead(302, { Location: location, 'Cache-Control': 'no-store', ...(cookies.length ? { 'Set-Cookie': cookies } : {}) });
+    response.end();
   }
 
   async function readBody(request) {
@@ -110,10 +101,10 @@ export function createServer({ secret, allowedOrigins, getView, health, log, sit
           ...(request.headers['access-control-request-private-network'] === 'true' ? { 'Access-Control-Allow-Private-Network': 'true' } : {}),
         });
       }
-      const page = request.method === 'GET' ? site.get(url.pathname) : undefined;
+      const page = request.method === 'GET' || request.method === 'HEAD' ? site.get(url.pathname) : undefined;
       if (page) {
         response.writeHead(200, { 'Content-Type': page.type, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
-        return response.end(page.body);
+        return response.end(request.method === 'HEAD' ? undefined : page.body);
       }
       if (url.pathname === '/health' && request.method === 'GET') {
         if (request.headers['cf-connecting-ip']) return send(response, 404, { error: 'not found' });
@@ -121,6 +112,21 @@ export function createServer({ secret, allowedOrigins, getView, health, log, sit
         return send(response, state.ok ? 200 : 503, state, cors);
       }
       if (origin && !cors['Access-Control-Allow-Origin']) return send(response, 403, { error: 'origin' });
+      if (url.pathname === '/auth/options' && request.method === 'GET') return send(response, 200, { roblox: auth.robloxReady }, cors);
+      if (url.pathname === '/auth/roblox' && request.method === 'GET') {
+        const next = auth.startLogin(request, url.searchParams.get('invite'));
+        return redirect(response, next);
+      }
+      if (url.pathname === '/auth/callback' && request.method === 'GET') {
+        const address = addressOf(request);
+        if (tooManyFails(address)) return redirect(response, { location: '/?auth_error=busy' });
+        const next = await auth.finishLogin(request, url);
+        if (/auth_error=(no_invite|invite_|expired)/.test(next.location)) recordFail(address);
+        return redirect(response, next);
+      }
+      if (url.pathname === '/auth/logout' && request.method === 'POST') {
+        return send(response, 200, { ok: true }, { ...cors, 'Set-Cookie': auth.signOutCookie(request) });
+      }
       if (url.pathname === '/v1/session' && request.method === 'POST') {
         const address = addressOf(request);
         if (tooManyFails(address)) return send(response, 429, { error: 'Too many tries. Wait 15 minutes.' }, cors);
@@ -130,17 +136,50 @@ export function createServer({ secret, allowedOrigins, getView, health, log, sit
         } catch {
           return send(response, 400, { error: 'Bad request.' }, cors);
         }
-        if (!checkSecret(body?.secret)) {
+        if (!auth.checkSecret(body?.secret)) {
           recordFail(address);
           log(`wrong dashboard secret from ${address}`);
           return send(response, 401, { error: 'Wrong secret.' }, cors);
         }
-        const expires = Date.now() + SESSION_HOURS * 3600 * 1000;
-        return send(response, 200, { token: `${expires}.${sign(String(expires))}`, expires }, cors);
+        return send(response, 200, auth.ownerSession(), cors);
       }
-      if (!url.pathname.startsWith('/v1/') || request.method !== 'GET') return send(response, 404, { error: 'not found' }, cors);
-      if (!authorized(request)) return send(response, 401, { error: 'Sign in again.' }, cors);
-      const view = getView(url.pathname, url.searchParams);
+      if (!url.pathname.startsWith('/v1/')) return send(response, 404, { error: 'not found' }, cors);
+      const who = auth.principal(request);
+      if (!who) return send(response, 401, { error: 'Sign in again.' }, cors);
+      if (url.pathname === '/v1/me' && request.method === 'GET') {
+        return send(response, 200, { id: who.id, name: who.name, username: who.username || null, role: who.role, games: who.games, roblox: auth.robloxReady }, cors);
+      }
+      if (url.pathname.startsWith('/v1/admin/')) {
+        if (who.role !== 'owner') return send(response, 403, { error: 'Only the owner can do that.' }, cors);
+        if (url.pathname === '/v1/admin/people' && request.method === 'GET') return send(response, 200, auth.people(), cors);
+        if (request.method !== 'POST' || !/^application\/json/.test(request.headers['content-type'] || '')) return send(response, 404, { error: 'not found' }, cors);
+        let body;
+        try {
+          body = await readBody(request);
+        } catch {
+          return send(response, 400, { error: 'Bad request.' }, cors);
+        }
+        try {
+          if (url.pathname === '/v1/admin/invites') {
+            if (!auth.robloxReady) return send(response, 409, { error: 'Set up Sign in with Roblox first (README).' }, cors);
+            const invite = auth.createInvite({ note: body.note, days: Math.min(Math.max(Number(body.days) || 7, 1), 30) });
+            log(`invite ${invite.id} made by ${who.name}`);
+            return send(response, 200, { id: invite.id, link: invite.link, expiresAt: invite.expiresAt }, cors);
+          }
+          if (url.pathname === '/v1/admin/invites/revoke') return send(response, 200, { ok: auth.revokeInvite(body.id) }, cors);
+          if (url.pathname === '/v1/admin/members/remove') {
+            if (String(body.id) === String(who.id)) return send(response, 400, { error: "You can't remove yourself." }, cors);
+            const ok = auth.removeMember(body.id, who.id);
+            log(`member ${body.id} removed by ${who.name}`);
+            return send(response, 200, { ok }, cors);
+          }
+        } catch (error) {
+          return send(response, 400, { error: error.message }, cors);
+        }
+        return send(response, 404, { error: 'not found' }, cors);
+      }
+      if (request.method !== 'GET') return send(response, 404, { error: 'not found' }, cors);
+      const view = getView(url.pathname, url.searchParams, who);
       if (!view) return send(response, 404, { error: 'not found' }, cors);
       if (request.headers['if-none-match'] === view.etag) return send(response, 304, undefined, { ...cors, ETag: view.etag });
       return send(response, 200, view.json, { ...cors, ETag: view.etag, 'Access-Control-Expose-Headers': 'ETag' });

@@ -6,8 +6,8 @@ import { lineChart, sparkline } from './charts.js';
 import { renderWidgets, card } from './widgets.js';
 
 const API = String(window.STATS_API || '').replace(/\/$/, '');
-const PAGES = { overview: 'Overview', funnels: 'Funnels', live: 'Live', feedback: 'Feedback' };
-const REFRESH = { overview: 60, funnels: 60, live: 15, feedback: 120 }; // seconds
+const PAGES = { overview: 'Overview', funnels: 'Funnels', live: 'Live', feedback: 'Feedback', people: 'People' };
+const REFRESH = { overview: 60, funnels: 60, live: 15, feedback: 120, people: 120 }; // seconds
 const MAX_GAME_LINES = 3; // game lines on one chart (more stop being tellable apart)
 
 const state = {
@@ -25,9 +25,39 @@ const rangeGroup = document.getElementById('range');
 const asOf = document.getElementById('as-of');
 const connection = document.getElementById('connection');
 
-// --- API: a session token (this tab only), ETags so unchanged views aren't sent again ---
+// --- Sign-in and the API ---
+// Roblox sign-in leaves an HttpOnly cookie (sent with every request); the owner's secret gives a token kept in
+// sessionStorage (this tab only) and sent as a Bearer header. ETags: unchanged views aren't sent again.
 const cache = new Map(); // path -> { etag, data }
 let signingIn = null;
+let me = null; // { name, role, games (null = every game), roblox }
+let options = { roblox: false };
+
+// ?invite=..., ?auth_error=... (from an invite link or a sign-in that came back): read once, then cleaned from the URL
+const landing = new URLSearchParams(location.search);
+const invite = landing.get('invite');
+const authError = landing.get('auth_error');
+if (invite || authError) history.replaceState(null, '', location.pathname + location.hash);
+const AUTH_ERRORS = {
+  not_configured: "Roblox sign-in isn't set up yet.",
+  denied: 'Roblox sign-in was cancelled.',
+  expired: 'That sign-in took too long, or was finished in another browser. Try again.',
+  no_invite: "This Roblox account hasn't been invited. Ask the owner for an invite link.",
+  invite_used: 'That invite link has already been used. Ask for a new one.',
+  invite_expired: 'That invite link has expired. Ask for a new one.',
+  invite_revoked: 'That invite link was cancelled. Ask for a new one.',
+  failed: "Roblox sign-in didn't work. Try again in a minute.",
+  busy: 'Too many tries. Wait 15 minutes.',
+};
+
+const authHeaders = () => (sessionStorage.getItem('session') ? { Authorization: `Bearer ${sessionStorage.getItem('session')}` } : {});
+
+async function loadMe() {
+  const response = await fetch(`${API}/v1/me`, { headers: authHeaders(), cache: 'no-store' }).catch(() => null);
+  if (!response) throw new Error("Can't reach the collector. Is the Mac on?");
+  me = response.ok ? await response.json() : null;
+  return me;
+}
 
 function signIn() {
   if (signingIn) return signingIn;
@@ -35,6 +65,20 @@ function signIn() {
   const form = document.getElementById('sign-in-form');
   const input = document.getElementById('secret');
   const error = document.getElementById('sign-in-error');
+  const roblox = document.getElementById('roblox-sign-in');
+  const secretBox = document.getElementById('secret-box');
+  if (invite) {
+    document.getElementById('sign-in-title').textContent = "You're invited";
+    document.getElementById('sign-in-note').textContent = "Sign in with Roblox. Roblox will ask which of your experiences to share: pick the games you work on, and you'll see their stats here.";
+  }
+  roblox.hidden = !options.roblox;
+  roblox.href = `${API}/auth/roblox${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`;
+  secretBox.open = !options.roblox;
+  if (!options.roblox) document.getElementById('sign-in-note').textContent = 'Roblox sign-in isn’t set up yet. The owner can use the dashboard secret.';
+  if (authError) {
+    error.textContent = AUTH_ERRORS[authError] || 'Sign-in failed. Try again.';
+    error.hidden = false;
+  }
   signingIn = new Promise((resolve) => {
     const submit = async (event) => {
       event.preventDefault();
@@ -47,6 +91,7 @@ function signIn() {
         if (!response.ok) throw new Error(body.error || `Sign-in failed (${response.status})`);
         sessionStorage.setItem('session', body.token);
         input.value = '';
+        await loadMe();
         form.removeEventListener('submit', submit);
         dialog.close();
         signingIn = null;
@@ -59,14 +104,14 @@ function signIn() {
     form.addEventListener('submit', submit);
     dialog.addEventListener('cancel', (event) => event.preventDefault()); // nothing works without signing in
     dialog.showModal();
-    input.focus();
+    (options.roblox ? roblox : input).focus();
   });
   return signingIn;
 }
 
 async function api(path) {
   const cached = cache.get(path);
-  const headers = { Authorization: `Bearer ${sessionStorage.getItem('session') || ''}` };
+  const headers = authHeaders();
   if (cached) headers['If-None-Match'] = cached.etag;
   let response;
   try {
@@ -77,6 +122,7 @@ async function api(path) {
   }
   if (response.status === 401) {
     sessionStorage.removeItem('session');
+    me = null;
     await signIn();
     return api(path);
   }
@@ -84,11 +130,18 @@ async function api(path) {
     setConnection('ok', 'Connected');
     return { data: cached.data, changed: false };
   }
-  if (!response.ok) throw new Error(`The collector answered ${response.status}.`);
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || `The collector answered ${response.status}.`);
   const data = await response.json();
   cache.set(path, { etag: response.headers.get('ETag'), data });
   setConnection('ok', 'Connected');
   return { data, changed: true };
+}
+
+async function apiPost(path, body) {
+  const response = await fetch(`${API}${path}`, { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `The collector answered ${response.status}.`);
+  return data;
 }
 
 let offline = false;
@@ -123,7 +176,11 @@ function syncShell() {
     if (page === state.page) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   }
-  rangeGroup.hidden = state.page === 'live' || state.page === 'feedback';
+  const owner = me?.role === 'owner';
+  document.querySelector('.nav-item[data-page="people"]').hidden = !owner;
+  document.getElementById('who').textContent = me ? `${me.name}${me.username ? ` (@${me.username})` : ''}` : '';
+  rangeGroup.hidden = state.page === 'live' || state.page === 'feedback' || state.page === 'people';
+  gameSelect.hidden = state.page === 'people';
   for (const button of rangeGroup.querySelectorAll('button')) button.setAttribute('aria-pressed', String(button.dataset.range === state.range));
   const options = [h('option', { value: 'all' }, 'All games'), ...state.games.map((game) => h('option', { value: game.id }, game.name))];
   gameSelect.replaceChildren(...options);
@@ -320,6 +377,90 @@ async function feedbackPage(quiet, token) {
   draw();
 }
 
+// The owner's People page: invite links, who's in and which games they see
+let lastInvite = null; // the link just made, shown until the page is left
+async function peoplePage(quiet, token) {
+  const { data, changed } = await api('/v1/admin/people');
+  if (token !== renderToken || (quiet && !changed)) return;
+  setAsOf(Math.floor(Date.now() / 1000));
+  const when = (at) => (at ? h('span', { title: new Date(at * 1000).toUTCString() }, timeAgo(at)) : '—');
+  const refresh = () => { cache.delete('/v1/admin/people'); render(); };
+  const act = async (button, path, body, confirmText) => {
+    if (confirmText && !confirm(confirmText)) return;
+    button.disabled = true;
+    try {
+      await apiPost(path, body);
+      refresh();
+    } catch (error) {
+      button.disabled = false;
+      alert(error.message);
+    }
+  };
+
+  const result = h('div', { class: 'invite-result', hidden: true });
+  const showInvite = (made) => {
+    const link = h('input', { class: 'input', readonly: true, value: made.link, 'aria-label': 'Invite link', onfocus: (e) => e.target.select() });
+    const copy = h('button', { class: 'button', type: 'button', onclick: async () => {
+      try { await navigator.clipboard.writeText(made.link); copy.textContent = 'Copied'; } catch { link.select(); }
+    } }, 'Copy');
+    result.replaceChildren(h('div', { class: 'row' }, link, copy),
+      h('p', { class: 'note' }, `Works once, until ${new Date(made.expiresAt * 1000).toLocaleDateString()}. Send it to them privately: whoever opens it first gets in.`));
+    result.hidden = false;
+  };
+  if (lastInvite) showInvite(lastInvite);
+  const note = h('input', { class: 'input', type: 'text', maxlength: '120', placeholder: 'Who is it for? (only you see this)', 'aria-label': 'Who is it for' });
+  const make = h('button', { class: 'button primary', type: 'submit', disabled: me.roblox ? null : true }, 'Make invite link');
+  const form = h('form', { class: 'invite-form', onsubmit: async (event) => {
+    event.preventDefault();
+    make.disabled = true;
+    try {
+      lastInvite = await apiPost('/v1/admin/invites', { note: note.value });
+      return refresh();
+    } catch (error) {
+      alert(error.message);
+    }
+    make.disabled = false;
+  } }, note, make);
+
+  const roleLabel = (role) => (role === 'owner' ? 'Owner' : 'Member');
+  const members = data.members.length
+    ? h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, ['Name', 'Role', 'Games they see', 'Last sign-in', ''].map((name) => h('th', {}, name)))),
+      h('tbody', {}, data.members.map((member) => h('tr', {},
+        h('td', {}, member.displayName || member.username || member.id, member.username ? h('span', { class: 'muted' }, ` @${member.username}`) : null),
+        h('td', {}, roleLabel(member.role)),
+        h('td', {}, member.games.length ? member.games.join(', ') : h('span', { class: 'muted' }, 'None shared yet')),
+        h('td', {}, when(member.lastLogin)),
+        h('td', { class: 'n' }, String(member.id) === String(me.id) ? '' : (() => {
+          const button = h('button', { class: 'button small danger', type: 'button' }, 'Remove');
+          button.addEventListener('click', () => act(button, '/v1/admin/members/remove', { id: member.id }, `Remove ${member.displayName || member.username}? They're signed out at once.`));
+          return button;
+        })()))))))
+    : h('p', { class: 'note' }, 'Nobody has signed in with Roblox yet.');
+
+  const invites = data.invites.length
+    ? h('div', { class: 'table-wrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, ['For', 'Made', 'Status', ''].map((name) => h('th', {}, name)))),
+      h('tbody', {}, data.invites.map((item) => h('tr', {},
+        h('td', {}, item.note || h('span', { class: 'muted' }, '—'), item.role === 'owner' ? h('span', { class: 'muted' }, ' (owner)') : null),
+        h('td', {}, when(item.createdAt)),
+        h('td', {}, { open: `Open until ${new Date(item.expiresAt * 1000).toLocaleDateString()}`, used: `Used by ${item.usedBy || 'someone'}`, expired: 'Expired', revoked: 'Cancelled' }[item.state]),
+        h('td', { class: 'n' }, item.state === 'open' ? (() => {
+          const button = h('button', { class: 'button small', type: 'button' }, 'Cancel');
+          button.addEventListener('click', () => act(button, '/v1/admin/invites/revoke', { id: item.id }));
+          return button;
+        })() : ''))))))
+    : h('p', { class: 'note' }, 'No invites yet.');
+
+  show(
+    card('Invite someone',
+      h('p', { class: 'card-sub' }, "They open the link and sign in with Roblox. Roblox asks which experiences to share, and only lists games their account can access; they'll see those of yours. Signing in again updates them."),
+      me.roblox ? null : h('p', { class: 'note error' }, "Roblox sign-in isn't set up yet, so invites can't be used (see the README)."),
+      form, result),
+    card('People', members),
+    card('Invite links', invites));
+}
+
 // --- Rendering and polling ---
 let timer = null;
 let renderToken = 0;
@@ -330,6 +471,13 @@ async function render({ quiet = false } = {}) {
   syncShell();
   if (!quiet) show(...skeleton());
   try {
+    if (me && me.games && !me.games.length) {
+      return show(message("Your Roblox account didn't share any of this dashboard's games. Sign out, sign in again, and on Roblox's screen tick the games you work on.", ''));
+    }
+    if (state.page === 'people') {
+      if (me?.role !== 'owner') return go('overview');
+      return await peoplePage(quiet, token);
+    }
     if (!state.games.length) {
       const { data } = await api(`/v1/overview?range=${state.range}`);
       state.games = data.games;
@@ -356,7 +504,7 @@ async function render({ quiet = false } = {}) {
   if (token === renderToken && !document.hidden) timer = setTimeout(() => render({ quiet: true }), REFRESH[state.page] * 1000);
 }
 
-window.addEventListener('hashchange', () => { readHash(); render(); });
+window.addEventListener('hashchange', () => { readHash(); if (state.page !== 'people') lastInvite = null; render(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render({ quiet: true }); else clearTimeout(timer); });
 gameSelect.addEventListener('change', () => go(state.page, gameSelect.value));
 rangeGroup.addEventListener('click', (event) => {
@@ -367,7 +515,14 @@ rangeGroup.addEventListener('click', (event) => {
   render();
 });
 document.getElementById('refresh').addEventListener('click', () => { cache.clear(); render(); });
-for (const id of ['sign-out', 'sign-out-top']) document.getElementById(id)?.addEventListener('click', () => { sessionStorage.removeItem('session'); cache.clear(); location.reload(); });
+for (const id of ['sign-out', 'sign-out-top']) {
+  document.getElementById(id)?.addEventListener('click', async () => {
+    await fetch(`${API}/auth/logout`, { method: 'POST' }).catch(() => {});
+    sessionStorage.removeItem('session');
+    cache.clear();
+    location.reload();
+  });
+}
 
 // Theme: system -> light -> dark
 const themeButton = document.getElementById('theme');
@@ -398,7 +553,14 @@ if (!API || API.includes('example.com')) {
   show(message('Set your collector address in site/config.js (window.STATS_API).', 'error'));
 } else {
   readHash();
-  if (!sessionStorage.getItem('session')) signIn().then(() => render());
-  else render();
+  (async () => {
+    options = await fetch(`${API}/auth/options`).then((response) => response.json()).catch(() => ({ roblox: false }));
+    try {
+      if (!(await loadMe())) await signIn();
+    } catch (error) {
+      return show(message(error.message, 'error'));
+    }
+    render();
+  })();
 }
 

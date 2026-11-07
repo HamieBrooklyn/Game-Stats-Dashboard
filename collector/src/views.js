@@ -162,10 +162,24 @@ export function buildViews(games, db, at = S.now()) {
 // Feedback from every game, newest first: only what the page shows (no player snapshot)
 export function feedbackView(games, db) {
   const names = Object.fromEntries(games.map((game) => [game.id, game.name]));
-  const items = db.feedback().map(({ game, entry }) => ({
+  const items = db.feedback().filter(({ game }) => game in names).map(({ game, entry }) => ({
     game, gameName: names[game] || game, id: entry.Id, at: entry.At, name: entry.Name, displayName: entry.DisplayName,
     text: String(entry.Text ?? ''), sentiment: entry.Sentiment, tags: Array.isArray(entry.Tags) ? entry.Tags : [],
     status: entry.Status, resolvedBy: entry.ResolvedBy || null, platform: entry.Device?.Platform || null,
   }));
   return { items, games: games.filter((game) => game.feedback).map((game) => ({ id: game.id, name: game.name })) };
+}
+
+// What one person may see: a game's own pages only when it's one of theirs, and the all-games pages (totals,
+// feedback) built from their games alone (scopedViews), so a total never includes a game they can't see.
+// who.games null = every game.
+export function viewGate(allViews, scopedViews) {
+  return (pathname, params, who) => {
+    const range = params.get('range');
+    const key = range ? `${pathname}?range=${range}` : pathname;
+    const game = /^\/v1\/games\/([^/]+)\//.exec(pathname);
+    if (game && who.games && !who.games.includes(game[1])) return null;
+    const views = game || !who.games ? allViews() : scopedViews(who.games);
+    return views.get(key) || null;
+  };
 }

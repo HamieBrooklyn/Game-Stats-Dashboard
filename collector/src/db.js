@@ -26,6 +26,16 @@ export function openDatabase(file) {
       game TEXT NOT NULL, source TEXT NOT NULL, ok_at INTEGER, error TEXT, error_at INTEGER,
       PRIMARY KEY (game, source)
     );
+    -- People who can sign in with Roblox (auth.js). games: the game ids their Roblox account shared at their last
+    -- sign-in (JSON). Invites are stored as hashes; a link works once.
+    CREATE TABLE IF NOT EXISTS members (
+      user_id TEXT PRIMARY KEY, username TEXT, display_name TEXT, role TEXT NOT NULL, games TEXT NOT NULL DEFAULT '[]',
+      created_at INTEGER NOT NULL, last_login INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS invites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT NOT NULL UNIQUE, role TEXT NOT NULL, note TEXT,
+      created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_by TEXT, used_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   const statements = {
@@ -45,7 +55,19 @@ export function openDatabase(file) {
     fail: db.prepare(`INSERT INTO sources (game, source, error, error_at) VALUES (?, ?, ?, ?)
       ON CONFLICT (game, source) DO UPDATE SET error = excluded.error, error_at = excluded.error_at`),
     sources: db.prepare('SELECT game, source, ok_at, error, error_at FROM sources'),
+    member: db.prepare('SELECT * FROM members WHERE user_id = ?'),
+    members: db.prepare('SELECT * FROM members ORDER BY created_at'),
+    putMember: db.prepare(`INSERT INTO members (user_id, username, display_name, role, games, created_at, last_login) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (user_id) DO UPDATE SET username = excluded.username, display_name = excluded.display_name, games = excluded.games, last_login = excluded.last_login`),
+    removeMember: db.prepare('DELETE FROM members WHERE user_id = ?'),
+    owners: db.prepare("SELECT COUNT(*) AS n FROM members WHERE role = 'owner'"),
+    addInvite: db.prepare('INSERT INTO invites (code_hash, role, note, created_at, expires_at) VALUES (?, ?, ?, ?, ?)'),
+    inviteByHash: db.prepare('SELECT * FROM invites WHERE code_hash = ?'),
+    useInvite: db.prepare('UPDATE invites SET used_by = ?, used_at = ? WHERE id = ? AND used_by IS NULL AND revoked = 0'),
+    revokeInvite: db.prepare('UPDATE invites SET revoked = 1 WHERE id = ? AND used_by IS NULL'),
+    invites: db.prepare('SELECT id, role, note, created_at, expires_at, used_by, used_at, revoked FROM invites ORDER BY id DESC LIMIT 200'),
   };
+  const memberOf = (row) => row && { id: row.user_id, username: row.username, displayName: row.display_name, role: row.role, games: JSON.parse(row.games), createdAt: row.created_at, lastLogin: row.last_login };
 
   // In-memory copy of parsed entries, so views don't parse JSON on every build
   const parsed = new Map();
@@ -93,6 +115,48 @@ export function openDatabase(file) {
     },
     sources() {
       return statements.sources.all();
+    },
+    member(userId) {
+      return memberOf(statements.member.get(String(userId)));
+    },
+    members() {
+      return statements.members.all().map(memberOf);
+    },
+    putMember(member, at) {
+      statements.putMember.run(String(member.id), member.username || null, member.displayName || null, member.role, JSON.stringify(member.games || []), at, at);
+    },
+    removeMember(userId) {
+      return statements.removeMember.run(String(userId)).changes > 0;
+    },
+    ownerCount() {
+      return statements.owners.get().n;
+    },
+    addInvite(codeHash, role, note, at, expiresAt) {
+      return Number(statements.addInvite.run(codeHash, role, note || null, at, expiresAt).lastInsertRowid);
+    },
+    inviteByHash(codeHash) {
+      return statements.inviteByHash.get(codeHash);
+    },
+    // Marks it used by this person; false when someone used or revoked it first
+    useInvite(id, userId, at) {
+      return statements.useInvite.run(String(userId), at, id).changes > 0;
+    },
+    revokeInvite(id) {
+      return statements.revokeInvite.run(id).changes > 0;
+    },
+    invites() {
+      return statements.invites.all();
+    },
+    transaction(fn) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const result = fn();
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
     },
     backup(dir, keep = 7) {
       fs.mkdirSync(dir, { recursive: true });
