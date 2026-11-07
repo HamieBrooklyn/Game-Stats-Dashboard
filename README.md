@@ -15,6 +15,8 @@ GitHub Pages: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, t
 
 **Why it's accurate:** the games already write their stats to their own DataStores; the collector only reads them, so nothing is counted twice and nothing is lost when the Mac is off (it catches up). The numbers come from a port of the panel's own math, checked against the package's real Luau (`collector/test/parity.test.js`). Days and hours are UTC, like the panel. Buckets are re-read until they're final (15 minutes after their hour/day ended) and the last two days are re-read every hour. What the collector adds on top, the 15-second "players online" samples, is backed up daily.
 
+**Intended differences from the in-game panel:** D1 shows "—" instead of 0% before a day is old enough; the hour or day still in progress is drawn dashed; the Live server list leaves out player names; there's no Lookup tab.
+
 **Honest labels:** "Players" across games is a sum (someone who plays two games counts twice); per-game peaks aren't added up (the online line uses samples); D1 shows "—" until a day is old enough; Robux is what players spent (you keep about 70%).
 
 ## Pages
@@ -34,10 +36,13 @@ GitHub Pages: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, t
 
    Nothing else: it never writes. Restrict it to your home IP if that's stable.
 4. **`collector/.env`**: copy `collector/.env.example`, fill in the key, a dashboard secret (`openssl rand -base64 33`), and the site's origin (`https://hamiebrooklyn.github.io`, or your custom domain). Optional `HEALTHCHECK_URL`: a free [healthchecks.io](https://healthchecks.io) ping, so you get an email when the Mac or collection stops.
-5. **`collector/games.json`**: each game's universe id (Creator Dashboard → the game → the id in the URL), its stats store (`SpotlightAdminStats_v1` unless the game set `stats.store`), live map, and `feedback` if it keeps feedback pages (`Meta` + `Page_N`).
+5. **Games**: copy `collector/games.json` to `collector/games.local.json` (git ignores it, so the Mac's checkout stays clean and keeps updating) and fill in each game's universe id (Creator Dashboard → the game → the id in the URL), its stats store (`SpotlightAdminStats_v1` unless the game set `stats.store`), live map, and `feedback` if it keeps feedback pages (`Meta` + `Page_N`).
+   To change the list for everyone instead, edit `games.json` on GitHub.
 6. **Tunnel**: `cloudflared tunnel login`, `cloudflared tunnel create game-stats`, `cloudflared tunnel route dns game-stats stats-api.<your-domain>`, then write `~/.cloudflared/config.yml` from `deploy/cloudflared.example.yml`.
-7. **Install**: `sudo deploy/install-mac.sh` — never sleep and restart after a power cut, the collector and tunnel start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
-8. **Check**: `curl -s http://127.0.0.1:8090/health` says `"ok": true` once every game with stats is read.
+7. **Install**: `sudo bash deploy/install-mac.sh` (it finds Homebrew's `node@24`; set `NODE_BIN=/path/to/node` if yours is elsewhere) — never sleep and restart after a power cut, the collector and tunnel start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
+8. **Check**: `curl -s http://127.0.0.1:8090/health` says `"ok": true` once every game with stats is read (it only answers on the Mac itself).
+
+After pulling changes to `deploy/` (the launchd files), run the install again; everything else updates by itself.
 
 **FileVault:** with FileVault on, a Mac that restarts after a power cut waits at the unlock screen and nothing starts until someone logs in. For a stats box, either turn FileVault off (System Settings → Privacy & Security), or accept that a power cut needs you at the Mac. The stats themselves are safe either way (they live in the games' DataStores).
 

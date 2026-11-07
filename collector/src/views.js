@@ -10,29 +10,41 @@ import { overviewTab, liveTab, funnelsTab, ratio } from './query.js';
 const RANGE_IDS = Object.keys(S.RANGES);
 const SAMPLE_BIN = 300; // the online line's bins: 5 minutes
 
-// What a game's data source looks like right now
+// How long a source may go without a good read before the game counts as stale (live is read every 15 s,
+// buckets every 60 s; one failed read is a blip, not an outage)
+export const LIVE_STALE = 120;
+export const STORE_STALE = 300;
+
+const minutes = (seconds) => `${Math.max(1, Math.round(seconds / 60))} min`;
+
+// What a game's data sources look like right now. Each source is judged on its own, so working live reads
+// can't hide failing DataStore reads (or the other way round).
 export function gameStatus(game, sources, read, at) {
   if (!game.universeId) return { state: 'unconfigured', label: 'Not set up', detail: 'No universe id in games.json yet.' };
   const of = (source) => sources.find((row) => row.game === game.id && row.source === source) || {};
-  const live = of('live'), store = of('datastore');
-  const lastOk = Math.max(live.ok_at || 0, store.ok_at || 0);
-  const lastError = Math.max(live.error_at || 0, store.error_at || 0);
-  if (!lastOk) {
-    return lastError
-      ? { state: 'error', label: 'Unreachable', detail: live.error || store.error }
+  const live = of('live'), store = of('datastore'), feedback = of('feedback');
+  const failing = (source) => (source.error_at || 0) > (source.ok_at || 0);
+  if (!store.ok_at) {
+    return store.error_at
+      ? { state: 'error', label: "Can't read stats", detail: store.error }
       : { state: 'pending', label: 'Starting', detail: 'First reads are on their way.' };
   }
+  const storeAge = at - store.ok_at;
+  if (failing(store) && storeAge > STORE_STALE) return { state: 'error', label: "Can't read stats", detail: `No good read for ${minutes(storeAge)}: ${store.error}` };
   const hasStats = Boolean(read(S.DEFS_KEY)) || Boolean(read(S.dayKey(S.dayOf(at), 0)));
   if (!hasStats) return { state: 'empty', label: 'No stats yet', detail: "This game's admin panel doesn't record stats yet (update its Spotlight Admin copy)." };
-  const age = at - lastOk;
-  if (age > 300 || (live.error_at || 0) > (live.ok_at || 0)) {
-    return { state: 'stale', label: 'Stale', detail: `Last good read ${Math.round(age / 60)} min ago${live.error ? `: ${live.error}` : ''}` };
+  if (storeAge > STORE_STALE) return { state: 'stale', label: 'Stale', detail: `Stats last read ${minutes(storeAge)} ago` };
+  const liveAge = live.ok_at ? at - live.ok_at : Infinity;
+  if (liveAge > LIVE_STALE) {
+    return { state: 'stale', label: 'Stale', detail: live.ok_at ? `Live servers last read ${minutes(liveAge)} ago${live.error ? `: ${live.error}` : ''}` : `Can't read live servers${live.error ? `: ${live.error}` : ''}` };
   }
-  return { state: 'ok', label: 'Live', detail: `Updated ${age} s ago` };
+  if (game.feedback && failing(feedback)) return { state: 'ok', label: 'Live', detail: `Reading normally, but feedback fails: ${feedback.error}` };
+  return { state: 'ok', label: 'Live', detail: 'Reading normally' };
 }
 
-// Players online summed over games, in 5-minute bins (each game's average in a bin; gaps stay null)
-function onlineSeries(games, samples, at) {
+// Players online summed over games, in 5-minute bins (each game's average in a bin). A bin where any game that
+// reported in the last 24 hours has no sample is a gap, never a smaller total that would look like a drop.
+export function onlineSeries(games, samples, at) {
   const start = Math.floor((at - 86400) / SAMPLE_BIN) * SAMPLE_BIN;
   const bins = Math.ceil((at - start) / SAMPLE_BIN);
   const perGame = new Map();
@@ -50,8 +62,8 @@ function onlineSeries(games, samples, at) {
     Values: perGame.get(game.id).map((bin) => (bin.n ? bin.sum / bin.n : null)),
   }));
   const total = Array.from({ length: bins }, (_, index) => {
-    const values = series.map((entry) => entry.Values[index]).filter((value) => value !== null);
-    return values.length ? values.reduce((a, b) => a + b, 0) : null;
+    const values = series.map((entry) => entry.Values[index]);
+    return values.length && values.every((value) => value !== null) ? values.reduce((a, b) => a + b, 0) : null;
   });
   const labels = Array.from({ length: bins }, (_, index) => {
     const date = new Date((start + index * SAMPLE_BIN) * 1000);
@@ -60,9 +72,11 @@ function onlineSeries(games, samples, at) {
   return { labels, total, series };
 }
 
+// The ETag leaves out "at" (when the view was built), so an unchanged view really answers 304
 function withEtag(body) {
   const json = JSON.stringify(body);
-  return { json, etag: `"${crypto.createHash('sha1').update(json).digest('base64url').slice(0, 20)}"` };
+  const { at, ...content } = body;
+  return { json, etag: `"${crypto.createHash('sha1').update(JSON.stringify(content)).digest('base64url').slice(0, 20)}"` };
 }
 
 export function buildViews(games, db, at = S.now()) {
@@ -73,7 +87,9 @@ export function buildViews(games, db, at = S.now()) {
   for (const game of games) {
     const read = (key) => db.entry(game.id, key)?.value ?? undefined;
     const status = gameStatus(game, sources, read, at);
-    const servers = db.entry(game.id, '$live')?.value;
+    // Live servers only while fresh: an old count is never shown as "playing now"
+    const liveEntry = db.entry(game.id, '$live');
+    const servers = liveEntry && liveEntry.fetchedAt >= at - LIVE_STALE / 2 ? liveEntry.value : null;
     const base = { game: { id: game.id, name: game.name, slot: game.slot }, status, at, utc: true };
     let live = null;
     if (game.universeId) {

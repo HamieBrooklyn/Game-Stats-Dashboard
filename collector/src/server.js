@@ -1,11 +1,14 @@
 // The dashboard's API, on 127.0.0.1 only (Cloudflare Tunnel publishes it). Private:
 // - POST /v1/session { secret } trades the admin secret (DASHBOARD_SECRET) for a session token that lasts
 //   SESSION_HOURS; the page keeps it in sessionStorage (this tab only) and sends it as a Bearer header.
-//   Wrong secrets are rate-limited per address. Nothing secret ever goes in a URL.
+//   Tokens are signed (expiry + HMAC of it with the secret), so restarts don't sign anyone out and changing
+//   the secret signs everyone out. Wrong secrets are rate-limited per address and overall. Nothing secret
+//   ever goes in a URL.
 // - Every /v1 view needs that token. Responses are never cached by browsers or Cloudflare (no-store), and an
 //   unchanged view answers 304 to If-None-Match.
 // - CORS allows only the dashboard's own origin(s) (ALLOWED_ORIGINS).
-// - GET /health says whether collection works (no numbers), for watchdogs.
+// - GET /health says whether collection works (no numbers), for watchdogs on the Mac itself: requests that
+//   came through the tunnel (they carry cf-connecting-ip) get 404.
 
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -13,18 +16,29 @@ import crypto from 'node:crypto';
 const SESSION_HOURS = 12;
 const MAX_FAILS = 5; // wrong secrets per address per FAIL_WINDOW
 const FAIL_WINDOW = 15 * 60 * 1000;
+const MAX_FAILS_TOTAL = 50; // wrong secrets from everyone per FAIL_WINDOW
+const MAX_TRACKED = 1000; // addresses remembered
 
 export function createServer({ secret, allowedOrigins, getView, health, log }) {
-  const sessions = new Map(); // token -> expires (ms)
   const fails = new Map(); // address -> [times]
+  let allFails = []; // times, everyone
   const secretHash = crypto.createHash('sha256').update(secret).digest();
+  const sign = (expires) => crypto.createHmac('sha256', secret).update(`session:${expires}`).digest('base64url');
 
   const addressOf = (request) => String(request.headers['cf-connecting-ip'] || request.socket.remoteAddress || '');
 
   function tooManyFails(address) {
-    const recent = (fails.get(address) || []).filter((time) => Date.now() - time < FAIL_WINDOW);
+    const now = Date.now();
+    allFails = allFails.filter((time) => now - time < FAIL_WINDOW);
+    const recent = (fails.get(address) || []).filter((time) => now - time < FAIL_WINDOW);
     fails.set(address, recent);
-    return recent.length >= MAX_FAILS;
+    return recent.length >= MAX_FAILS || allFails.length >= MAX_FAILS_TOTAL;
+  }
+
+  function recordFail(address) {
+    allFails.push(Date.now());
+    fails.get(address)?.push(Date.now());
+    if (fails.size > MAX_TRACKED) for (const key of [...fails.keys()].slice(0, fails.size - MAX_TRACKED)) fails.delete(key);
   }
 
   function checkSecret(given) {
@@ -33,14 +47,11 @@ export function createServer({ secret, allowedOrigins, getView, health, log }) {
   }
 
   function authorized(request) {
-    const match = /^Bearer (\S+)$/.exec(request.headers.authorization || '');
-    if (!match) return false;
-    const expires = sessions.get(match[1]);
-    if (!expires || expires < Date.now()) {
-      sessions.delete(match[1]);
-      return false;
-    }
-    return true;
+    const match = /^Bearer (\d+)\.([\w-]+)$/.exec(request.headers.authorization || '');
+    if (!match || Number(match[1]) < Date.now()) return false;
+    const expected = Buffer.from(sign(match[1]));
+    const given = Buffer.from(match[2]);
+    return given.length === expected.length && crypto.timingSafeEqual(given, expected);
   }
 
   function send(response, status, body, headers = {}) {
@@ -78,6 +89,7 @@ export function createServer({ secret, allowedOrigins, getView, health, log }) {
         });
       }
       if (url.pathname === '/health' && request.method === 'GET') {
+        if (request.headers['cf-connecting-ip']) return send(response, 404, { error: 'not found' });
         const state = health();
         return send(response, state.ok ? 200 : 503, state, cors);
       }
@@ -85,17 +97,19 @@ export function createServer({ secret, allowedOrigins, getView, health, log }) {
       if (url.pathname === '/v1/session' && request.method === 'POST') {
         const address = addressOf(request);
         if (tooManyFails(address)) return send(response, 429, { error: 'Too many tries. Wait 15 minutes.' }, cors);
-        const body = await readBody(request);
-        if (!checkSecret(body.secret)) {
-          fails.get(address).push(Date.now());
+        let body;
+        try {
+          body = await readBody(request);
+        } catch {
+          return send(response, 400, { error: 'Bad request.' }, cors);
+        }
+        if (!checkSecret(body?.secret)) {
+          recordFail(address);
           log(`wrong dashboard secret from ${address}`);
           return send(response, 401, { error: 'Wrong secret.' }, cors);
         }
-        const token = crypto.randomBytes(32).toString('base64url');
         const expires = Date.now() + SESSION_HOURS * 3600 * 1000;
-        sessions.set(token, expires);
-        for (const [key, value] of sessions) if (value < Date.now()) sessions.delete(key);
-        return send(response, 200, { token, expires }, cors);
+        return send(response, 200, { token: `${expires}.${sign(String(expires))}`, expires }, cors);
       }
       if (!url.pathname.startsWith('/v1/') || request.method !== 'GET') return send(response, 404, { error: 'not found' }, cors);
       if (!authorized(request)) return send(response, 401, { error: 'Sign in again.' }, cors);

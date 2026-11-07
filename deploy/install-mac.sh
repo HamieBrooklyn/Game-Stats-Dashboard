@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-time setup of the collector on the Mac that runs it 24/7. Run from the repo: sudo deploy/install-mac.sh
+# One-time setup of the collector on the Mac that runs it 24/7. Run from the repo: sudo bash deploy/install-mac.sh
+# Run it again after pulling changes to deploy/ (the launchd files are only installed here).
 #
 # What it does:
 # - Power: never sleep, restart after a power cut (pmset). See the FileVault note in README.md.
@@ -12,21 +13,25 @@
 set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
-  echo "Run with sudo: sudo deploy/install-mac.sh" >&2
+  echo "Run with sudo: sudo bash deploy/install-mac.sh" >&2
   exit 1
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RUN_USER="${SUDO_USER:-$(stat -f %Su "$ROOT")}"
-NODE="${NODE_BIN:-$(sudo -u "$RUN_USER" bash -lc 'command -v node' || true)}"
-CLOUDFLARED="${CLOUDFLARED_BIN:-$(sudo -u "$RUN_USER" bash -lc 'command -v cloudflared' || true)}"
+# The first that exists. node@24 is keg-only (not on PATH); its /opt path is stable across brew upgrades,
+# unlike the versioned Cellar path it points into, so that path is used as is (never resolved).
+first_existing() { for candidate in "$@"; do [[ -n "$candidate" && -x "$candidate" ]] && { echo "$candidate"; return 0; }; done; return 0; }
+NODE="$(first_existing "${NODE_BIN:-}" /opt/homebrew/opt/node@24/bin/node /usr/local/opt/node@24/bin/node \
+  "$(sudo -u "$RUN_USER" zsh -lc 'command -v node' 2>/dev/null || true)")"
+CLOUDFLARED="$(first_existing "${CLOUDFLARED_BIN:-}" /opt/homebrew/bin/cloudflared /usr/local/bin/cloudflared \
+  "$(sudo -u "$RUN_USER" zsh -lc 'command -v cloudflared' 2>/dev/null || true)")"
 LOGS="$ROOT/logs"
 
-if [[ -z "$NODE" ]]; then echo "Install Node 24 first (brew install node@24)." >&2; exit 1; fi
+if [[ -z "$NODE" ]]; then echo "Install Node 24 first (brew install node@24), or set NODE_BIN=/path/to/node." >&2; exit 1; fi
 NODE_MAJOR="$("$NODE" -p 'process.versions.node.split(".")[0]')"
-if (( NODE_MAJOR < 24 )); then echo "Node $NODE_MAJOR found; the collector needs 24+ (built-in SQLite)." >&2; exit 1; fi
-# Resolve symlinks so a `brew upgrade` of another Node doesn't move the path under launchd
-NODE="$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$NODE" 2>/dev/null || echo "$NODE")"
+if (( NODE_MAJOR < 24 )); then echo "$NODE is Node $NODE_MAJOR; the collector needs 24+ (built-in SQLite). Set NODE_BIN." >&2; exit 1; fi
+echo "Node: $NODE"
 if [[ ! -f "$ROOT/collector/.env" ]]; then
   echo "Create collector/.env first (copy collector/.env.example and fill it in)." >&2
   exit 1

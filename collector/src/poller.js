@@ -132,11 +132,11 @@ export function createPoller({ games, client, db, log, onChange }) {
       const count = meta?.Count || 0;
       const pages = Math.ceil(count / (adapter.pageSize || 50));
       const from = all ? 1 : Math.max(pages - 1, 1);
+      const size = adapter.pageSize || 50;
       for (let page = pages; page >= from; page--) {
-        const entries = await client.getEntry(game.universeId, adapter.store, `Page_${page}`);
-        for (const entry of Array.isArray(entries) ? entries : Object.values(entries || {})) {
-          if (entry && typeof entry === 'object' && typeof entry.Id === 'number') db.putFeedback(game.id, entry);
-        }
+        const raw = await client.getEntry(game.universeId, adapter.store, `Page_${page}`);
+        const entries = (Array.isArray(raw) ? raw : Object.values(raw || {})).filter((entry) => entry && typeof entry === 'object' && typeof entry.Id === 'number');
+        db.replaceFeedbackPage(game.id, (page - 1) * size + 1, page * size, entries);
       }
       db.sourceOk(game.id, 'feedback', at);
     } catch (error) {

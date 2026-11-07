@@ -10,6 +10,8 @@
   <array>
     <string>__CLOUDFLARED__</string>
     <string>tunnel</string>
+    <string>--loglevel</string>
+    <string>warn</string>
     <string>--config</string>
     <string>/Users/__USER__/.cloudflared/config.yml</string>
     <string>run</string>

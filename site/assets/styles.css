@@ -90,6 +90,8 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+.phone-only { display: none !important; }
+.status.offline { color: var(--error); }
 html, body { margin: 0; height: 100%; }
 body {
   font-family: var(--font-sans);
@@ -240,9 +242,7 @@ tbody tr:hover td:first-child { background: color-mix(in srgb, var(--card) 92%, 
 .feedback { display: grid; gap: 6px; }
 .feedback-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--muted-foreground); }
 .feedback-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.sentiment { font-weight: 500; }
-.sentiment.Positive { color: var(--success); }
-.sentiment.Negative { color: var(--error); }
+.sentiment { font-weight: 500; color: var(--foreground); }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* States */
@@ -278,7 +278,10 @@ dialog .button { height: 40px; justify-content: center; }
   .select, .button, .segmented, .input { height: 44px; }
   .icon-button { width: 44px; }
   .segmented button { min-width: 44px; }
-  .chip { height: 36px; }
+  .chip { height: 44px; }
+  .phone-only { display: inline-flex !important; }
+  .row-link td { height: 44px; }
+  th button { min-height: 32px; }
   .grid-2 { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: repeat(2, 1fr); }
   .tile-value { font-size: 20px; }

@@ -74,7 +74,12 @@ export function lineChart(series, options) {
 
     for (const marker of options.markers || []) {
       const mx = pad.left + (count > 1 ? (marker.At / (count - 1)) * plotW : 0);
-      chart.append(svg('line', { x1: mx, x2: mx, y1: pad.top, y2: pad.top + plotH, stroke: 'var(--faint)', 'stroke-dasharray': '2 3' }));
+      const group = svg('g');
+      const title = svg('title');
+      title.textContent = `${marker.Kind}: ${marker.Text}`;
+      group.append(title, svg('line', { x1: mx, x2: mx, y1: pad.top, y2: pad.top + plotH, stroke: 'var(--faint)', 'stroke-dasharray': '2 3' }),
+        svg('line', { x1: mx, x2: mx, y1: pad.top, y2: pad.top + plotH, stroke: 'transparent', 'stroke-width': 10 }));
+      chart.append(group);
     }
 
     for (const entry of series) {

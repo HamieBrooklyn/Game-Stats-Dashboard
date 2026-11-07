@@ -92,7 +92,7 @@ const fake = http.createServer((request, response) => {
   if (url.pathname.endsWith('/entries')) return json(200, { keys: Object.keys(store).filter((key) => key.startsWith(url.searchParams.get('prefix'))).map((key) => ({ key })) });
   if (url.pathname.includes('/memory-store/')) {
     const count = universe === 101 ? 3 : 1;
-    return json(200, { memoryStoreSortedMapItems: Array.from({ length: count }, (_, index) => ({ id: `s:${universe}${index}`, value: { Id: `${universe}${index}abcdef`, Players: int(4, 20), Names: [], Version: 12 - (index === 2 ? 1 : 0), Uptime: int(300, 40000), Fps: int(55, 60), Private: false, At: Math.floor(Date.now() / 1000) } })) });
+    return json(200, { items: Array.from({ length: count }, (_, index) => ({ id: `s:${universe}${index}`, value: { Id: `${universe}${index}abcdef`, Players: int(4, 20), Names: [], Version: 12 - (index === 2 ? 1 : 0), Uptime: int(300, 40000), Fps: int(55, 60), Private: false, At: Math.floor(Date.now() / 1000) } })) });
   }
   return json(404, {});
 });

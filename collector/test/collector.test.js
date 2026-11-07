@@ -42,7 +42,7 @@ const fake = http.createServer((request, response) => {
     return json(200, { keys: Object.keys(store).filter((key) => key.startsWith(prefix)).map((key) => ({ key })) });
   }
   if (url.pathname.includes('/memory-store/sorted-maps/')) {
-    return json(200, { memoryStoreSortedMapItems: [
+    return json(200, { items: [
       { id: 's:abc', value: { Id: 'abc12345', Players: 7, Names: ['x'], Version: 12, Uptime: 600, Fps: 60, Private: false, At: AT } },
       { id: 'l:leader', value: 'abc' },
     ] });

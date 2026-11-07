@@ -83,7 +83,8 @@ export function createClient(apiKey, { onRequest } = {}) {
       } while (cursor);
       return keys;
     },
-    // Every item of a MemoryStore sorted map: [{ id, value }] (paged, 100 at a time)
+    // Every item of a MemoryStore sorted map: [{ id, value }] (paged, 100 at a time; the response is
+    // { items: [{ id, value, ... }], nextPageToken })
     async sortedMapItems(universeId, map) {
       const items = [];
       let token = '';
@@ -91,7 +92,8 @@ export function createClient(apiKey, { onRequest } = {}) {
         const params = new URLSearchParams({ maxPageSize: '100' });
         if (token) params.set('pageToken', token);
         const page = await request(universeId, `/cloud/v2/universes/${universeId}/memory-store/sorted-maps/${encodeURIComponent(map)}/items?${params}`);
-        for (const item of page?.memoryStoreSortedMapItems || []) items.push({ id: item.id, value: item.value });
+        if (page !== null && !Array.isArray(page?.items ?? [])) throw new OpenCloudError('unexpected MemoryStore response shape', 0);
+        for (const item of page?.items || []) items.push({ id: item.id, value: item.value });
         token = page?.nextPageToken || '';
       } while (token);
       return items;

@@ -80,7 +80,10 @@ async function api(path) {
     await signIn();
     return api(path);
   }
-  if (response.status === 304 && cached) return { data: cached.data, changed: false };
+  if (response.status === 304 && cached) {
+    setConnection('ok', 'Connected');
+    return { data: cached.data, changed: false };
+  }
   if (!response.ok) throw new Error(`The collector answered ${response.status}.`);
   const data = await response.json();
   cache.set(path, { etag: response.headers.get('ETag'), data });
@@ -88,8 +91,12 @@ async function api(path) {
   return { data, changed: true };
 }
 
+let offline = false;
 function setConnection(kind, text) {
   connection.replaceChildren(h('span', { class: `dot ${kind}` }), text);
+  offline = kind === 'error';
+  asOf.classList.toggle('offline', offline);
+  if (offline) asOf.replaceChildren(h('span', { class: 'dot error' }), 'Offline · showing the last numbers');
 }
 
 // --- Shell ---
@@ -128,6 +135,7 @@ function statusBadge(status) {
 }
 
 function setAsOf(at) {
+  if (offline) return;
   asOf.replaceChildren(at ? `As of ${utcTime(at)}` : '');
   asOf.title = at ? `Built ${timeAgo(at)}. Days and hours are UTC, like the in-game panel.` : '';
 }
@@ -146,9 +154,9 @@ function skeleton() {
 }
 
 // --- Pages ---
-async function overviewAll(quiet) {
+async function overviewAll(quiet, token) {
   const { data, changed } = await api(`/v1/overview?range=${state.range}`);
-  if (quiet && !changed) return;
+  if (token !== renderToken || (quiet && !changed)) return;
   state.games = data.games;
   syncShell();
   setAsOf(data.at);
@@ -221,11 +229,11 @@ function gamesTable(games) {
     h('tbody', {}, rows))));
 }
 
-async function gamePage(tab, withRange, quiet) {
+async function gamePage(tab, withRange, quiet, token) {
   const game = gameById(state.game);
   const path = `/v1/games/${encodeURIComponent(state.game)}/${tab}${withRange ? `?range=${state.range}` : ''}`;
   const { data, changed } = await api(path);
-  if (quiet && !changed) return;
+  if (token !== renderToken || (quiet && !changed)) return;
   setAsOf(data.at);
   const head = h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap' },
     h('span', { class: 'game-dot', style: `background:${gameColor(game || { slot: 1 })}` }),
@@ -245,9 +253,9 @@ function pickGame(page) {
       : h('p', { class: 'note' }, 'No game is reporting stats yet.')));
 }
 
-async function liveAll(quiet) {
+async function liveAll(quiet, token) {
   const { data, changed } = await api(`/v1/overview?range=24h`);
-  if (quiet && !changed) return;
+  if (token !== renderToken || (quiet && !changed)) return;
   state.games = data.games;
   syncShell();
   setAsOf(data.at);
@@ -267,9 +275,9 @@ async function liveAll(quiet) {
         h('td', { class: 'n' }, format(game.servers, 'int')))))))));
 }
 
-async function feedbackPage(quiet) {
+async function feedbackPage(quiet, token) {
   const { data, changed } = await api('/v1/feedback');
-  if (quiet && !changed) return;
+  if (token !== renderToken || (quiet && !changed)) return;
   setAsOf(Math.floor(Date.now() / 1000));
   const filter = state.feedbackFilter;
   const list = h('div', { class: 'feedback-list' });
@@ -288,11 +296,11 @@ async function feedbackPage(quiet) {
           h('span', {}, item.gameName),
           h('span', {}, '·'),
           h('span', { title: `@${item.name}` }, item.displayName || item.name),
-          item.sentiment ? h('span', { class: `sentiment ${item.sentiment}` }, item.sentiment) : null,
+          item.sentiment ? h('span', { class: 'sentiment' }, item.sentiment) : null,
           item.platform ? h('span', { class: 'tag' }, item.platform) : null,
           item.tags.map((tag) => h('span', { class: 'tag' }, tag)),
           h('span', { class: 'spacer' }),
-          h('span', { class: 'tag' }, item.status || 'Open', item.resolvedBy ? ` · ${item.resolvedBy}` : ''),
+          item.status ? h('span', { class: 'tag' }, item.status, item.resolvedBy ? ` · ${item.resolvedBy}` : '') : null,
           h('time', { datetime: new Date(item.at * 1000).toISOString(), title: new Date(item.at * 1000).toUTCString() }, timeAgo(item.at))),
         h('p', { class: 'feedback-text', style: 'margin:0' }, item.text)); // text only: never rendered as HTML
     }) : [message('No feedback matches.')]));
@@ -333,10 +341,10 @@ async function render({ quiet = false } = {}) {
     const typing = quiet && content.contains(document.activeElement) && /^(INPUT|SELECT)$/.test(document.activeElement.tagName);
     if (typing) {
       // try again at the next refresh
-    } else if (state.page === 'overview') await (game ? gamePage('overview', true, quiet) : overviewAll(quiet));
-    else if (state.page === 'funnels') await (game ? gamePage('funnels', true, quiet) : pickGame('funnels'));
-    else if (state.page === 'live') await (game ? gamePage('live', false, quiet) : liveAll(quiet));
-    else await feedbackPage(quiet);
+    } else if (state.page === 'overview') await (game ? gamePage('overview', true, quiet, token) : overviewAll(quiet, token));
+    else if (state.page === 'funnels') await (game ? gamePage('funnels', true, quiet, token) : pickGame('funnels'));
+    else if (state.page === 'live') await (game ? gamePage('live', false, quiet, token) : liveAll(quiet, token));
+    else await feedbackPage(quiet, token);
   } catch (error) {
     if (token === renderToken && !quiet) show(message(error.message, 'error'));
     if (quiet) setConnection('error', error.message.split('.')[0]);
@@ -355,7 +363,7 @@ rangeGroup.addEventListener('click', (event) => {
   render();
 });
 document.getElementById('refresh').addEventListener('click', () => { cache.clear(); render(); });
-document.getElementById('sign-out').addEventListener('click', () => { sessionStorage.removeItem('session'); cache.clear(); location.reload(); });
+for (const id of ['sign-out', 'sign-out-top']) document.getElementById(id)?.addEventListener('click', () => { sessionStorage.removeItem('session'); cache.clear(); location.reload(); });
 
 // Theme: system -> light -> dark
 const themeButton = document.getElementById('theme');

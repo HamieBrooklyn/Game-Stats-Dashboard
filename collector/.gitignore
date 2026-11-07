@@ -1,4 +1,5 @@
 .env
+games.local.json
 data/
 node_modules/
 logs/

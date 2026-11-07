@@ -19,6 +19,7 @@ export function openDatabase(file) {
     );
     CREATE TABLE IF NOT EXISTS ccu (game TEXT NOT NULL, t INTEGER NOT NULL, players INTEGER NOT NULL, servers INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS ccu_game_t ON ccu (game, t);
+    CREATE INDEX IF NOT EXISTS ccu_t ON ccu (t);
     CREATE TABLE IF NOT EXISTS feedback (game TEXT NOT NULL, id INTEGER NOT NULL, value TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (game, id));
     CREATE INDEX IF NOT EXISTS feedback_at ON feedback (at);
     CREATE TABLE IF NOT EXISTS sources (
@@ -37,6 +38,8 @@ export function openDatabase(file) {
     putFeedback: db.prepare(`INSERT INTO feedback (game, id, value, at) VALUES (?, ?, ?, ?)
       ON CONFLICT (game, id) DO UPDATE SET value = excluded.value, at = excluded.at`),
     feedback: db.prepare('SELECT game, value FROM feedback ORDER BY at DESC LIMIT 2000'),
+    feedbackIds: db.prepare('SELECT id FROM feedback WHERE game = ? AND id BETWEEN ? AND ?'),
+    deleteFeedback: db.prepare('DELETE FROM feedback WHERE game = ? AND id = ?'),
     ok: db.prepare(`INSERT INTO sources (game, source, ok_at) VALUES (?, ?, ?)
       ON CONFLICT (game, source) DO UPDATE SET ok_at = excluded.ok_at`),
     fail: db.prepare(`INSERT INTO sources (game, source, error, error_at) VALUES (?, ?, ?, ?)
@@ -72,6 +75,12 @@ export function openDatabase(file) {
     },
     putFeedback(game, entry) {
       statements.putFeedback.run(game, entry.Id, JSON.stringify(entry), entry.At || 0);
+    },
+    // Keeps exactly the entries a page holds now (deleted ones go): ids from..to are that page's
+    replaceFeedbackPage(game, from, to, entries) {
+      const keep = new Set(entries.map((entry) => entry.Id));
+      for (const row of statements.feedbackIds.all(game, from, to)) if (!keep.has(row.id)) statements.deleteFeedback.run(game, row.id);
+      for (const entry of entries) statements.putFeedback.run(game, entry.Id, JSON.stringify(entry), entry.At || 0);
     },
     feedback() {
       return statements.feedback.all().map((row) => ({ game: row.game, entry: JSON.parse(row.value) }));

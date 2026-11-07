@@ -178,7 +178,7 @@ export function overviewTab(game, read, rangeId, at = S.now()) {
 
 // The Live tab (Tabs.Live): the servers from MemoryStore, and the 24-hour peak line
 export function liveTab(game, read, servers, at = S.now()) {
-  if (!servers) return { widgets: [note("Couldn't read the live servers (MemoryStore).", 'error')] };
+  if (!servers) return { widgets: [note("No recent read of the live servers (MemoryStore). The status above says why.", 'error')], online: null, servers: null };
   const list = [...servers].sort((a, b) => b.Players - a.Players);
   let online = 0, newest = 0, privateCount = 0;
   const rows = list.map((server) => {

@@ -46,7 +46,9 @@ export function main() {
     console.error('DASHBOARD_SECRET must be at least 24 characters.');
     process.exit(1);
   }
-  const games = loadGames(process.env.GAMES_FILE || path.join(ROOT, 'games.json'));
+  // collector/games.local.json (not committed) wins over games.json, so editing it on the Mac never blocks updates
+  const localGames = path.join(ROOT, 'games.local.json');
+  const games = loadGames(process.env.GAMES_FILE || (fs.existsSync(localGames) ? localGames : path.join(ROOT, 'games.json')));
   const dataDir = process.env.DATA_DIR || path.join(ROOT, 'data');
   const db = openDatabase(path.join(dataDir, 'stats.db'));
   // For deploy/update-mac.sh: it stops this process after an update, and launchd starts the new code
@@ -78,7 +80,8 @@ export function main() {
     const sources = db.sources();
     const list = games.map((game) => ({ id: game.id, state: gameStatus(game, sources, (key) => db.entry(game.id, key)?.value, at).state }));
     const watched = list.filter((game) => game.state !== 'unconfigured' && game.state !== 'empty');
-    return { ok: watched.length > 0 && watched.every((game) => game.state === 'ok'), games: list, viewsBuiltAt: lastBuild };
+    const failing = list.filter((game) => game.state === 'error' || game.state === 'stale');
+    return { ok: watched.length > 0 && failing.length === 0, games: list, viewsBuiltAt: lastBuild };
   }
 
   const server = createServer({
@@ -99,6 +102,7 @@ export function main() {
 
   // Housekeeping: the dead-man ping, online samples kept 35 days, the daily backup
   const timers = [];
+  // (health is only "not ok" once a source has had no good read for minutes, so a blip sends no email)
   timers.push(setInterval(() => {
     const url = process.env.HEALTHCHECK_URL;
     if (url) fetch(health().ok ? url : `${url}/fail`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
