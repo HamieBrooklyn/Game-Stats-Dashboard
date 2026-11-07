@@ -92,11 +92,14 @@ async function api(path) {
 }
 
 let offline = false;
+let lastAt = null;
 function setConnection(kind, text) {
   connection.replaceChildren(h('span', { class: `dot ${kind}` }), text);
+  const wasOffline = offline;
   offline = kind === 'error';
   asOf.classList.toggle('offline', offline);
   if (offline) asOf.replaceChildren(h('span', { class: 'dot error' }), 'Offline · showing the last numbers');
+  else if (wasOffline) setAsOf(lastAt); // back: the time again, even if nothing changed meanwhile
 }
 
 // --- Shell ---
@@ -135,6 +138,7 @@ function statusBadge(status) {
 }
 
 function setAsOf(at) {
+  lastAt = at;
   if (offline) return;
   asOf.replaceChildren(at ? `As of ${utcTime(at)}` : '');
   asOf.title = at ? `Built ${timeAgo(at)}. Days and hours are UTC, like the in-game panel.` : '';

@@ -39,7 +39,7 @@ GitHub Pages: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, t
 5. **Games**: copy `collector/games.json` to `collector/games.local.json` (git ignores it, so the Mac's checkout stays clean and keeps updating) and fill in each game's universe id (Creator Dashboard → the game → the id in the URL), its stats store (`SpotlightAdminStats_v1` unless the game set `stats.store`), live map, and `feedback` if it keeps feedback pages (`Meta` + `Page_N`).
    To change the list for everyone instead, edit `games.json` on GitHub.
 6. **Tunnel**: `cloudflared tunnel login`, `cloudflared tunnel create game-stats`, `cloudflared tunnel route dns game-stats stats-api.<your-domain>`, then write `~/.cloudflared/config.yml` from `deploy/cloudflared.example.yml`.
-7. **Install**: `sudo bash deploy/install-mac.sh` (it finds Homebrew's `node@24`; set `NODE_BIN=/path/to/node` if yours is elsewhere) — never sleep and restart after a power cut, the collector and tunnel start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
+7. **Install**: `sudo bash deploy/install-mac.sh` (it finds Homebrew's `node@24`; for a Node elsewhere: `sudo NODE_BIN=/path/to/node bash deploy/install-mac.sh`) — never sleep and restart after a power cut, the collector and tunnel start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
 8. **Check**: `curl -s http://127.0.0.1:8090/health` says `"ok": true` once every game with stats is read (it only answers on the Mac itself).
 
 After pulling changes to `deploy/` (the launchd files), run the install again; everything else updates by itself.

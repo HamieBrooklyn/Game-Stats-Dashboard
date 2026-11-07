@@ -18,6 +18,10 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [[ "$ROOT" =~ [[:space:]] ]]; then
+  echo "Move the repo to a folder without spaces ($ROOT): launchd and log rotation files can't hold them." >&2
+  exit 1
+fi
 RUN_USER="${SUDO_USER:-$(stat -f %Su "$ROOT")}"
 # The first that exists. node@24 is keg-only (not on PATH); its /opt path is stable across brew upgrades,
 # unlike the versioned Cellar path it points into, so that path is used as is (never resolved).
@@ -27,6 +31,7 @@ NODE="$(first_existing "${NODE_BIN:-}" /opt/homebrew/opt/node@24/bin/node /usr/l
 CLOUDFLARED="$(first_existing "${CLOUDFLARED_BIN:-}" /opt/homebrew/bin/cloudflared /usr/local/bin/cloudflared \
   "$(sudo -u "$RUN_USER" zsh -lc 'command -v cloudflared' 2>/dev/null || true)")"
 LOGS="$ROOT/logs"
+if [[ -n "${NODE_BIN:-}" && ! -x "$NODE_BIN" ]]; then echo "NODE_BIN=$NODE_BIN isn't an executable file." >&2; exit 1; fi
 
 if [[ -z "$NODE" ]]; then echo "Install Node 24 first (brew install node@24), or set NODE_BIN=/path/to/node." >&2; exit 1; fi
 NODE_MAJOR="$("$NODE" -p 'process.versions.node.split(".")[0]')"

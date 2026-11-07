@@ -65,25 +65,40 @@ test('online total: a bin missing a game is a gap, not a drop', async () => {
   const games = [{ id: 'a', name: 'A', slot: 1 }, { id: 'b', name: 'B', slot: 2 }];
   const start = Math.floor((at - 86400) / 300) * 300;
   const samples = [
-    { game: 'a', t: start + 10, players: 10 }, // bin 0: only A
-    { game: 'a', t: start + 310, players: 10 }, { game: 'b', t: start + 320, players: 20 }, // bin 1: both
+    { game: 'a', t: start + 10, players: 10 }, { game: 'b', t: start + 20, players: 20 }, // bin 0: both
+    { game: 'a', t: start + 310, players: 10 }, // bin 1: B missing (its collection failed)
+    { game: 'a', t: start + 610, players: 10 }, { game: 'b', t: start + 620, players: 20 }, // bin 2: both
   ];
   const online = onlineSeries(games, samples, at);
-  assert.equal(online.total[0], null, 'partial bin left out');
-  assert.equal(online.total[1], 30);
+  assert.equal(online.total[0], 30);
+  assert.equal(online.total[1], null, 'partial bin left out, not a drop to 10');
+  assert.equal(online.total[2], 30);
+  // A game added later doesn't blank the bins from before its first sample
+  const later = onlineSeries(games, [{ game: 'a', t: start + 10, players: 10 }, { game: 'a', t: start + 310, players: 10 }, { game: 'b', t: start + 320, players: 5 }], at);
+  assert.equal(later.total[0], 10, 'before B existed, A alone is the total');
+  assert.equal(later.total[1], 15);
+});
+
+test('playing now: unknown while any reporting game is unknown', async () => {
+  const { playingNow } = await import('../src/views.js');
+  const ok = { state: 'ok' };
+  assert.equal(playingNow([{ status: ok, online: 5 }, { status: ok, online: 7 }, { status: { state: 'unconfigured' }, online: null }]), 12);
+  assert.equal(playingNow([{ status: ok, online: 5 }, { status: { state: 'stale' }, online: null }]), null);
+  assert.equal(playingNow([{ status: { state: 'unconfigured' }, online: null }]), null);
 });
 
 test('views: stale live counts are not shown; ETags repeat when nothing changed', async () => {
   const { buildViews } = await import('../src/views.js');
   const { db, dir } = await tempDb();
   const game = { id: 'g', name: 'G', universeId: 1, shards: 1, slot: 1 };
-  const at = Math.floor(Date.now() / 1000);
+  // Mid 5-minute bin, so the 7 s later rebuild stays in the same bins (crossing one rightly changes the view)
+  const at = Math.floor(Date.now() / 1000 / 300) * 300 + 100;
   db.putEntry('g', '$live', [{ Id: 'x', Players: 9, Version: 1, Uptime: 1, Fps: 60, Private: false }], at - 600, false);
   db.sourceOk('g', 'datastore', at);
   db.sourceOk('g', 'live', at);
   const first = buildViews([game], db, at);
   const overview = JSON.parse(first.get('/v1/overview?range=24h').json);
-  assert.equal(overview.kpis.online, 0, 'a 10-minute-old count is not "playing now"');
+  assert.equal(overview.kpis.online, null, 'a 10-minute-old count is not "playing now" (and no partial total)');
   assert.equal(overview.games[0].online, null);
   const again = buildViews([game], db, at + 7);
   assert.equal(again.get('/v1/overview?range=7d').etag, first.get('/v1/overview?range=7d').etag, 'same content, same ETag');

@@ -43,7 +43,8 @@ export function gameStatus(game, sources, read, at) {
 }
 
 // Players online summed over games, in 5-minute bins (each game's average in a bin). A bin where any game that
-// reported in the last 24 hours has no sample is a gap, never a smaller total that would look like a drop.
+// reported in the last 24 hours (from its first sample on) has no sample is a gap, never a smaller total that
+// would look like a drop.
 export function onlineSeries(games, samples, at) {
   const start = Math.floor((at - 86400) / SAMPLE_BIN) * SAMPLE_BIN;
   const bins = Math.ceil((at - start) / SAMPLE_BIN);
@@ -61,8 +62,9 @@ export function onlineSeries(games, samples, at) {
     Slot: game.slot,
     Values: perGame.get(game.id).map((bin) => (bin.n ? bin.sum / bin.n : null)),
   }));
+  const firstBin = series.map((entry) => entry.Values.findIndex((value) => value !== null));
   const total = Array.from({ length: bins }, (_, index) => {
-    const values = series.map((entry) => entry.Values[index]);
+    const values = series.filter((_, i) => index >= firstBin[i]).map((entry) => entry.Values[index]);
     return values.length && values.every((value) => value !== null) ? values.reduce((a, b) => a + b, 0) : null;
   });
   const labels = Array.from({ length: bins }, (_, index) => {
@@ -70,6 +72,13 @@ export function onlineSeries(games, samples, at) {
     return `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
   });
   return { labels, total, series };
+}
+
+// Players online now across games, or null when a game that should report has no fresh count
+export function playingNow(rows) {
+  const expected = rows.filter((row) => row.status.state !== 'unconfigured' && row.status.state !== 'empty' && row.status.state !== 'pending');
+  if (!expected.length || expected.some((row) => row.online === null || row.online === undefined)) return null;
+  return expected.reduce((total, row) => total + row.online, 0);
 }
 
 // The ETag leaves out "at" (when the view was built), so an unchanged view really answers 304
@@ -116,7 +125,8 @@ export function buildViews(games, db, at = S.now()) {
       range: rangeId,
       coverage: { reporting: reporting.length, total: games.length },
       kpis: {
-        online: gameRows.reduce((total, row) => total + (row.online || 0), 0),
+        // Unknown while any game that should report has no fresh count: never a partial total
+        online: playingNow(gameRows),
         playersSummed: sum('players'),
         newPlayers: sum('newUsers'),
         avgSession: ratio(sum('sessionSum'), sum('sessionsEnded')),

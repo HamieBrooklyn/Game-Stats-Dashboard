@@ -19,6 +19,11 @@ latest="$(git rev-parse "origin/$BRANCH")"
 if [[ "$current" == "$latest" ]]; then
   exit 0
 fi
+# A commit that passed the tests but didn't start is skipped until a newer one is pushed
+BAD="$ROOT/collector/data/bad-commit"
+if [[ -f "$BAD" && "$(cat "$BAD")" == "$latest" ]]; then
+  exit 0
+fi
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   # (the Mac's own games list belongs in collector/games.local.json, which git ignores)
   log "local changes to tracked files; not updating: $(git status --porcelain --untracked-files=no | tr '\n' ' ')"
@@ -28,12 +33,16 @@ fi
 log "updating ${current:0:7} -> ${latest:0:7}"
 git merge --ff-only --quiet "origin/$BRANCH"
 if ! (cd collector && "$NODE" --test test/*.test.js >/dev/null 2>&1); then
-  log "tests failed on ${latest:0:7}; staying on ${current:0:7}"
+  log "tests failed on ${latest:0:7}; staying on ${current:0:7} (and skipping ${latest:0:7})"
+  echo "$latest" > "$BAD"
   git reset --quiet --hard "$current"
   exit 1
 fi
 
 PID_FILE="$ROOT/collector/data/collector.pid"
+# The collector's port: PORT in collector/.env, else 8090
+PORT="$(sed -n 's/^[[:space:]]*PORT[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$ROOT/collector/.env" 2>/dev/null | tail -1)"
+PORT="${PORT:-8090}"
 # The collector's pid, only if that process really is the collector (a pid can be reused after a crash)
 collector_pid() {
   [[ -f "$PID_FILE" ]] || return 1
@@ -48,7 +57,7 @@ restart() {
     sleep 2
     local now; now="$(collector_pid || true)"
     if [[ -n "$now" && "$now" != "$pid" ]]; then
-      local code; code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:8090/health || true)"
+      local code; code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://127.0.0.1:$PORT/health" || true)"
       [[ "$code" == 200 || "$code" == 503 ]] && return 0
     fi
   done
@@ -58,7 +67,8 @@ restart() {
 if restart; then
   log "restarted the collector on ${latest:0:7}"
 else
-  log "the collector didn't come back on ${latest:0:7}; going back to ${current:0:7}"
+  log "the collector didn't come back on ${latest:0:7}; going back to ${current:0:7} (and skipping ${latest:0:7})"
+  echo "$latest" > "$BAD"
   git reset --quiet --hard "$current"
   restart || log "the collector doesn't start on ${current:0:7} either: check logs/collector.log"
   exit 1

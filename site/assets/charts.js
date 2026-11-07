@@ -74,12 +74,8 @@ export function lineChart(series, options) {
 
     for (const marker of options.markers || []) {
       const mx = pad.left + (count > 1 ? (marker.At / (count - 1)) * plotW : 0);
-      const group = svg('g');
-      const title = svg('title');
-      title.textContent = `${marker.Kind}: ${marker.Text}`;
-      group.append(title, svg('line', { x1: mx, x2: mx, y1: pad.top, y2: pad.top + plotH, stroke: 'var(--faint)', 'stroke-dasharray': '2 3' }),
-        svg('line', { x1: mx, x2: mx, y1: pad.top, y2: pad.top + plotH, stroke: 'transparent', 'stroke-width': 10 }));
-      chart.append(group);
+      // (its note shows in the tooltip when that point is hovered or tapped)
+      chart.append(svg('line', { x1: mx, x2: mx, y1: pad.top, y2: pad.top + plotH, stroke: 'var(--faint)', 'stroke-dasharray': '2 3' }));
     }
 
     for (const entry of series) {
@@ -122,6 +118,10 @@ export function lineChart(series, options) {
       cross.setAttribute('x2', px);
       cross.setAttribute('visibility', 'visible');
       tooltip.replaceChildren(h('div', { class: 'tooltip-title' }, labels[index], options.partial && index === count - 1 ? ' · in progress' : ''));
+      // Notes and updates at this point (the dashed vertical lines)
+      for (const marker of options.markers || []) {
+        if (Math.round(marker.At) === index) tooltip.append(h('div', { class: 'tooltip-title' }, `${marker.Kind}: ${marker.Text}`));
+      }
       series.forEach((entry, i) => {
         const value = entry.values[index];
         if (typeof value === 'number') {
