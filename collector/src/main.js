@@ -13,12 +13,19 @@ import * as S from './stats.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// KEY=VALUE lines from collector/.env (never committed); real environment variables win
+// KEY=VALUE lines from collector/.env (never committed); real environment variables win. A value may be quoted
+// ('...' or "..."); an unquoted one may end in a " # comment" (a # with no space before it is part of the value).
+// deploy/update-mac.sh reads PORT the same way.
+export function parseEnvValue(raw) {
+  const quoted = /^(['"])(.*)\1$/.exec(raw);
+  return quoted ? quoted[2] : raw.replace(/\s+#.*$/, '');
+}
+
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
     const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
-    if (match && process.env[match[1]] === undefined) process.env[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2');
+    if (match && process.env[match[1]] === undefined) process.env[match[1]] = parseEnvValue(match[2]);
   }
 }
 

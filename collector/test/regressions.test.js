@@ -141,3 +141,13 @@ test('server: sessions survive a restart, bad bodies are 400, /health is private
   assert.equal((await fetch(`${base}/v1/overview`, { headers: { ...origin, Authorization: `Bearer ${token}` } })).status, 401, 'a new secret signs everyone out');
   other.close();
 });
+
+test('.env: the collector and deploy/update-mac.sh read PORT the same way', async () => {
+  const { parseEnvValue } = await import('../src/main.js');
+  assert.equal(parseEnvValue('9000'), '9000');
+  assert.equal(parseEnvValue('"9001"'), '9001');
+  assert.equal(parseEnvValue("'9002'"), '9002');
+  assert.equal(parseEnvValue('9003 # the port'), '9003');
+  assert.equal(parseEnvValue('abc#def'), 'abc#def', 'a # inside a secret stays');
+  assert.equal(parseEnvValue('"a # b"'), 'a # b', 'quoted values are kept whole');
+});

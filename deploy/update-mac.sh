@@ -40,9 +40,10 @@ if ! (cd collector && "$NODE" --test test/*.test.js >/dev/null 2>&1); then
 fi
 
 PID_FILE="$ROOT/collector/data/collector.pid"
-# The collector's port: PORT in collector/.env, else 8090
-PORT="$(sed -n 's/^[[:space:]]*PORT[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$ROOT/collector/.env" 2>/dev/null | tail -1)"
-PORT="${PORT:-8090}"
+# The collector's port: PORT in collector/.env (read like the collector does: quotes and a trailing comment
+# allowed), else 8090
+PORT="$(grep -E '^[[:space:]]*PORT[[:space:]]*=' "$ROOT/collector/.env" 2>/dev/null | tail -1 | sed -e 's/^[^=]*=//' -e 's/#.*//' | tr -d "\"' \t\r")"
+[[ "$PORT" =~ ^[0-9]+$ ]] || PORT=8090
 # The collector's pid, only if that process really is the collector (a pid can be reused after a crash)
 collector_pid() {
   [[ -f "$PID_FILE" ]] || return 1
