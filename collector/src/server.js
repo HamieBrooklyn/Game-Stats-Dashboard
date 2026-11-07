@@ -1,4 +1,5 @@
-// The dashboard's API, on 127.0.0.1 only (Cloudflare Tunnel publishes it). Private:
+// The dashboard and its API, on 127.0.0.1 only. The Mac serves the site itself (siteDir) at
+// http://127.0.0.1:8090, so nothing has to be published; a tunnel in front of it is optional. Private:
 // - POST /v1/session { secret } trades the admin secret (DASHBOARD_SECRET) for a session token that lasts
 //   SESSION_HOURS; the page keeps it in sessionStorage (this tab only) and sends it as a Bearer header.
 //   Tokens are signed (expiry + HMAC of it with the secret), so restarts don't sign anyone out and changing
@@ -12,14 +13,33 @@
 
 import http from 'node:http';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const SESSION_HOURS = 12;
 const MAX_FAILS = 5; // wrong secrets per address per FAIL_WINDOW
 const FAIL_WINDOW = 15 * 60 * 1000;
 const MAX_FAILS_TOTAL = 50; // wrong secrets from everyone per FAIL_WINDOW
 const MAX_TRACKED = 1000; // addresses remembered
+const SITE_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+// On the Mac the API is the page's own origin, so this replaces site/config.js (which is for a separately hosted site)
+const LOCAL_CONFIG = 'window.STATS_API = location.origin;\n';
 
-export function createServer({ secret, allowedOrigins, getView, health, log }) {
+// The site's files, read once: only these exact paths are ever served, so a URL can't reach anything else.
+function loadSite(siteDir) {
+  const files = new Map();
+  if (!siteDir) return files;
+  const add = (route, file) => files.set(route, { body: fs.readFileSync(file), type: SITE_TYPES[path.extname(file)] });
+  add('/', path.join(siteDir, 'index.html'));
+  add('/index.html', path.join(siteDir, 'index.html'));
+  const assets = path.join(siteDir, 'assets');
+  for (const name of fs.readdirSync(assets)) if (SITE_TYPES[path.extname(name)]) add(`/assets/${name}`, path.join(assets, name));
+  files.set('/config.js', { body: Buffer.from(LOCAL_CONFIG), type: SITE_TYPES['.js'] });
+  return files;
+}
+
+export function createServer({ secret, allowedOrigins, getView, health, log, siteDir }) {
+  const site = loadSite(siteDir);
   const fails = new Map(); // address -> [times]
   let allFails = []; // times, everyone
   const secretHash = crypto.createHash('sha256').update(secret).digest();
@@ -89,6 +109,11 @@ export function createServer({ secret, allowedOrigins, getView, health, log }) {
           // Chrome's Private Network Access: the public site may call this private (Tailscale 100.x) address
           ...(request.headers['access-control-request-private-network'] === 'true' ? { 'Access-Control-Allow-Private-Network': 'true' } : {}),
         });
+      }
+      const page = request.method === 'GET' ? site.get(url.pathname) : undefined;
+      if (page) {
+        response.writeHead(200, { 'Content-Type': page.type, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
+        return response.end(page.body);
       }
       if (url.pathname === '/health' && request.method === 'GET') {
         if (request.headers['cf-connecting-ip']) return send(response, 404, { error: 'not found' });

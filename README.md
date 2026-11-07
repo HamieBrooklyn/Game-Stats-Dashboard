@@ -7,11 +7,10 @@ Roblox game servers ── every 60 s ──> each game's DataStore + MemoryStor
                                               │ Open Cloud, read-only key
                                               ▼
 Mac: collector (Node 24, SQLite)  ── launchd, starts at boot, restarts if it stops
-      reads every game, keeps a copy, builds the same numbers as the in-game panel, serves a private API
-                                              │ Tailscale Serve (private, your devices only): https://<mac>.<tailnet>.ts.net
-                                              │ or a Cloudflare Tunnel (anywhere): https://stats-api.<your-domain>
+      reads every game, keeps a copy, builds the same numbers as the in-game panel, serves the site and its API
+                                              │ http://127.0.0.1:8090 (this Mac only)
                                               ▼
-GitHub Pages: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, the rest every 60 s
+Browser: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, the rest every 60 s
 ```
 
 **Why it's accurate:** the games already write their stats to their own DataStores; the collector only reads them, so nothing is counted twice and nothing is lost when the Mac is off (it catches up). The numbers come from a port of the panel's own math, checked against the package's real Luau (`collector/test/parity.test.js`). Days and hours are UTC, like the panel. Buckets are re-read until they're final (15 minutes after their hour/day ended) and the last two days are re-read every hour. What the collector adds on top, the 15-second "players online" samples, is backed up daily.
@@ -35,35 +34,35 @@ GitHub Pages: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, t
 curl -fsSL https://raw.githubusercontent.com/HamieBrooklyn/Game-Stats-Dashboard/main/deploy/setup-mac.sh | bash
 ```
 
-It does steps 1-8 below for the Tailscale route (asks for the key and your Mac password), checks the key against every game (`collector/scripts/check.js`), and prints the dashboard secret and the Mac's address for `site/config.js`. Safe to run again.
+It does the steps below (asks for the key and your Mac password), checks the key against every game (`collector/scripts/check.js`), and prints the dashboard's address and secret. Safe to run again.
 
 The steps by hand:
 
-1. **Node 24 and cloudflared**: `brew install node@24 cloudflared`
+1. **Node 24**: `brew install node@24`, or the official build from nodejs.org (it shares nothing with Homebrew; pass its path as `NODE_BIN` in step 7).
 2. **Clone** this repo somewhere permanent, e.g. `~/Developer/Game-Stats-Dashboard`.
 3. **Open Cloud key** (Creator Dashboard → Open Cloud → API Keys → Create): add every game's universe with
    - DataStores: **Read Entry** and **List Entry Keys**
    - Memory Stores: **Read sorted map** (`memory-store.sorted-map:read`)
 
    Nothing else: it never writes. Restrict it to your home IP if that's stable.
-4. **`collector/.env`**: copy `collector/.env.example`, fill in the key, a dashboard secret (`openssl rand -base64 33`), and the site's origin (`https://hamiebrooklyn.github.io`, or your custom domain). Optional `HEALTHCHECK_URL`: a free [healthchecks.io](https://healthchecks.io) ping, so you get an email when the Mac or collection stops.
+4. **`collector/.env`**: copy `collector/.env.example`, fill in the key, a dashboard secret (`openssl rand -base64 33`), and `ALLOWED_ORIGINS` as in the example. Optional `HEALTHCHECK_URL`: a free [healthchecks.io](https://healthchecks.io) ping, so you get an email when the Mac or collection stops.
 5. **Games**: copy `collector/games.json` to `collector/games.local.json` (git ignores it, so the Mac's checkout stays clean and keeps updating) and fill in each game's universe id (Creator Dashboard → the game → the id in the URL), its stats store (`SpotlightAdminStats_v1` unless the game set `stats.store`), live map, and `feedback` if it keeps feedback pages (`Meta` + `Page_N`).
    To change the list for everyone instead, edit `games.json` on GitHub.
-6. **Give the API an HTTPS address** (the site is HTTPS, so browsers only let it call HTTPS). Pick one:
-   - **Tailscale Serve, no domain** (simplest; only your own devices on the tailnet can reach it): with Tailscale on the Mac, run `tailscale serve --bg --https=8443 http://127.0.0.1:8090`. The address is `https://<mac-name>.<tailnet>.ts.net:8443` (`tailscale serve status` shows it). It keeps running across restarts. Your phone or PC needs Tailscale on to see the dashboard.
-   - **Cloudflare Tunnel** (reachable from anywhere, needs a domain on Cloudflare): `cloudflared tunnel login`, `cloudflared tunnel create game-stats`, `cloudflared tunnel route dns game-stats stats-api.<your-domain>`, then write `~/.cloudflared/config.yml` from `deploy/cloudflared.example.yml`. The install starts it at boot.
-7. **Install**: `sudo bash deploy/install-mac.sh` (it finds Homebrew's `node@24`; for a Node elsewhere: `sudo NODE_BIN=/path/to/node bash deploy/install-mac.sh`) — never sleep and restart after a power cut, the collector (and the Cloudflare tunnel, if set up) start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
+6. **Reaching it from outside this Mac** is optional and off by default. The collector only listens on 127.0.0.1. To add a Cloudflare Tunnel: `cloudflared tunnel login`, `cloudflared tunnel create game-stats`, `cloudflared tunnel route dns game-stats stats-api.<your-domain>`, then write `~/.cloudflared/game-stats.yml` from `deploy/cloudflared.example.yml` (its own file, so it can't touch another tunnel on the Mac), and add the site's origin to `ALLOWED_ORIGINS`.
+7. **Install**: `sudo bash deploy/install-mac.sh` (it finds Homebrew's `node@24`; for a Node elsewhere: `sudo NODE_BIN=/path/to/node bash deploy/install-mac.sh`) — never sleep and restart after a power cut, the collector (and the optional tunnel) start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
 8. **Check**: `curl -s http://127.0.0.1:8090/health` says `"ok": true` once every game with stats is read (it only answers on the Mac itself).
 
 After pulling changes to `deploy/` (the launchd files), run the install again; everything else updates by itself.
 
 **FileVault:** with FileVault on, a Mac that restarts after a power cut waits at the unlock screen and nothing starts until someone logs in. For a stats box, either turn FileVault off (System Settings → Privacy & Security), or accept that a power cut needs you at the Mac. The stats themselves are safe either way (they live in the games' DataStores).
 
-## Publish the site
+## Open the dashboard
 
-1. Repo Settings → Pages → Source: **GitHub Actions**. Every push to `main` that touches `site/` publishes it.
-2. Set your API address in `site/config.js` on GitHub (`window.STATS_API = 'https://<mac-name>.<tailnet>.ts.net:8443'`, or your tunnel's), and put the site's own address in the Mac's `collector/.env` as `ALLOWED_ORIGINS`.
-3. Open the site and enter the dashboard secret. It's swapped for a 12-hour session kept in that tab only.
+Go to http://127.0.0.1:8090 on the Mac and enter the dashboard secret. It's swapped for a 12-hour session kept in that tab only.
+
+## Host the site somewhere else (optional)
+
+`site/` also works from GitHub Pages: set `window.STATS_API` in `site/config.js` to an HTTPS address for the collector (step 6) and add the site's origin to `ALLOWED_ORIGINS`. Every push to `main` that touches `site/` publishes it.
 
 ## Try it locally
 

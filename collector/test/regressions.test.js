@@ -163,3 +163,27 @@ test('server: a preflight from the site may reach a private (Tailscale) address'
   assert.equal(other.status, 403, 'only for the site itself');
   server.close();
 });
+
+test('the Mac serves the site itself, and only the site', async () => {
+  const { createServer } = await import('../src/server.js');
+  const siteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'site-'));
+  fs.mkdirSync(path.join(siteDir, 'assets'));
+  fs.writeFileSync(path.join(siteDir, 'index.html'), '<title>x</title>');
+  fs.writeFileSync(path.join(siteDir, 'assets', 'app.js'), 'ok()');
+  fs.writeFileSync(path.join(siteDir, 'secret.txt'), 'no');
+  const server = createServer({ secret: 'a-long-enough-secret-for-tests-123', allowedOrigins: [], getView: () => null, health: () => ({ ok: true }), log: () => {}, siteDir });
+  const base = await listen(server);
+  try {
+    const page = await fetch(`${base}/`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-type'), /text\/html/);
+    assert.equal((await fetch(`${base}/assets/app.js`)).status, 200);
+    assert.match(await (await fetch(`${base}/config.js`)).text(), /location\.origin/);
+    for (const route of ['/secret.txt', '/assets/../secret.txt', '/assets/%2e%2e/secret.txt', '/.env', '/assets/']) {
+      assert.equal((await fetch(`${base}${route}`)).status, 404, route);
+    }
+    assert.equal((await fetch(`${base}/v1/overview`)).status, 401);
+  } finally {
+    server.close();
+  }
+});

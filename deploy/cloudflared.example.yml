@@ -1,4 +1,4 @@
-# ~/.cloudflared/config.yml on the Mac (keep your tunnel id and credentials file as created by
+# ~/.cloudflared/game-stats.yml on the Mac (optional: only to reach the dashboard from outside this Mac) (keep your tunnel id and credentials file as created by
 # `cloudflared tunnel create game-stats`). Route the hostname with:
 #   cloudflared tunnel route dns game-stats stats-api.<your-domain>
 tunnel: YOUR_TUNNEL_ID

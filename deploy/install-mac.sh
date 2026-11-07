@@ -6,7 +6,7 @@
 # - Power: never sleep, restart after a power cut (pmset). See the FileVault note in README.md.
 # - Services start at BOOT, not login (LaunchDaemons, run as your user):
 #     com.gamestats.collector  node collector/src/main.js, restarted if it stops
-#     com.gamestats.tunnel     cloudflared (the dashboard's API hostname -> 127.0.0.1:8090)
+#     com.gamestats.tunnel     optional cloudflared, only with its own ~/.cloudflared/game-stats.yml
 #     com.gamestats.update     every 10 minutes: pull, test, restart (deploy/update-mac.sh)
 # - Logs rotate (newsyslog), and collector/.env is readable by you only.
 
@@ -64,10 +64,12 @@ install_daemon() {
 
 install_daemon com.gamestats.collector com.gamestats.collector.plist
 install_daemon com.gamestats.update com.gamestats.update.plist
-if [[ -n "$CLOUDFLARED" && -f "/Users/$RUN_USER/.cloudflared/config.yml" ]]; then
+# Its own config file on purpose: ~/.cloudflared/config.yml may belong to another tunnel on this Mac, and running
+# that one here would add a connector to it.
+if [[ -n "$CLOUDFLARED" && -f "/Users/$RUN_USER/.cloudflared/game-stats.yml" ]]; then
   install_daemon com.gamestats.tunnel com.gamestats.tunnel.plist
 else
-  echo "Skipped the tunnel: install cloudflared and create ~/.cloudflared/config.yml first (README.md), then run this again."
+  echo "No tunnel (the dashboard is served by this Mac at http://127.0.0.1:8090). It's optional: see README.md."
 fi
 
 sed -e "s#__ROOT__#$ROOT#g" -e "s#__USER__#$RUN_USER#g" "$ROOT/deploy/newsyslog.conf" > /etc/newsyslog.d/gamestats.conf

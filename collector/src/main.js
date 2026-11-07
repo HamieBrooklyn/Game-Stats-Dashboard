@@ -94,6 +94,7 @@ export function main() {
   const server = createServer({
     secret: process.env.DASHBOARD_SECRET,
     allowedOrigins: process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
+    siteDir: path.resolve(ROOT, '..', 'site'),
     getView: (pathname, params) => {
       const range = params.get('range');
       return views.get(range ? `${pathname}?range=${range}` : pathname) || null;

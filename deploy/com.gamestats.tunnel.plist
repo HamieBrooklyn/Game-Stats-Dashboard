@@ -15,7 +15,7 @@
     <string>--pidfile</string>
     <string>__ROOT__/logs/tunnel.pid</string>
     <string>--config</string>
-    <string>/Users/__USER__/.cloudflared/config.yml</string>
+    <string>/Users/__USER__/.cloudflared/game-stats.yml</string>
     <string>run</string>
   </array>
   <key>RunAtLoad</key>
