@@ -8,7 +8,8 @@ Roblox game servers ── every 60 s ──> each game's DataStore + MemoryStor
                                               ▼
 Mac: collector (Node 24, SQLite)  ── launchd, starts at boot, restarts if it stops
       reads every game, keeps a copy, builds the same numbers as the in-game panel, serves a private API
-                                              │ Cloudflare Tunnel: https://stats-api.<your-domain>
+                                              │ Tailscale Serve (private, your devices only): https://<mac>.<tailnet>.ts.net
+                                              │ or a Cloudflare Tunnel (anywhere): https://stats-api.<your-domain>
                                               ▼
 GitHub Pages: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, the rest every 60 s
 ```
@@ -38,8 +39,10 @@ GitHub Pages: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, t
 4. **`collector/.env`**: copy `collector/.env.example`, fill in the key, a dashboard secret (`openssl rand -base64 33`), and the site's origin (`https://hamiebrooklyn.github.io`, or your custom domain). Optional `HEALTHCHECK_URL`: a free [healthchecks.io](https://healthchecks.io) ping, so you get an email when the Mac or collection stops.
 5. **Games**: copy `collector/games.json` to `collector/games.local.json` (git ignores it, so the Mac's checkout stays clean and keeps updating) and fill in each game's universe id (Creator Dashboard → the game → the id in the URL), its stats store (`SpotlightAdminStats_v1` unless the game set `stats.store`), live map, and `feedback` if it keeps feedback pages (`Meta` + `Page_N`).
    To change the list for everyone instead, edit `games.json` on GitHub.
-6. **Tunnel**: `cloudflared tunnel login`, `cloudflared tunnel create game-stats`, `cloudflared tunnel route dns game-stats stats-api.<your-domain>`, then write `~/.cloudflared/config.yml` from `deploy/cloudflared.example.yml`.
-7. **Install**: `sudo bash deploy/install-mac.sh` (it finds Homebrew's `node@24`; for a Node elsewhere: `sudo NODE_BIN=/path/to/node bash deploy/install-mac.sh`) — never sleep and restart after a power cut, the collector and tunnel start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
+6. **Give the API an HTTPS address** (the site is HTTPS, so browsers only let it call HTTPS). Pick one:
+   - **Tailscale Serve, no domain** (simplest; only your own devices on the tailnet can reach it): with Tailscale on the Mac, run `tailscale serve --bg --https=8443 http://127.0.0.1:8090`. The address is `https://<mac-name>.<tailnet>.ts.net:8443` (`tailscale serve status` shows it). It keeps running across restarts. Your phone or PC needs Tailscale on to see the dashboard.
+   - **Cloudflare Tunnel** (reachable from anywhere, needs a domain on Cloudflare): `cloudflared tunnel login`, `cloudflared tunnel create game-stats`, `cloudflared tunnel route dns game-stats stats-api.<your-domain>`, then write `~/.cloudflared/config.yml` from `deploy/cloudflared.example.yml`. The install starts it at boot.
+7. **Install**: `sudo bash deploy/install-mac.sh` (it finds Homebrew's `node@24`; for a Node elsewhere: `sudo NODE_BIN=/path/to/node bash deploy/install-mac.sh`) — never sleep and restart after a power cut, the collector (and the Cloudflare tunnel, if set up) start at boot, updates every 10 minutes (pull, test, restart; it rolls back if tests fail), logs rotate.
 8. **Check**: `curl -s http://127.0.0.1:8090/health` says `"ok": true` once every game with stats is read (it only answers on the Mac itself).
 
 After pulling changes to `deploy/` (the launchd files), run the install again; everything else updates by itself.
@@ -49,7 +52,7 @@ After pulling changes to `deploy/` (the launchd files), run the install again; e
 ## Publish the site
 
 1. Repo Settings → Pages → Source: **GitHub Actions**. Every push to `main` that touches `site/` publishes it.
-2. Set your API address in `site/config.js` (`window.STATS_API = 'https://stats-api.<your-domain>'`).
+2. Set your API address in `site/config.js` on GitHub (`window.STATS_API = 'https://<mac-name>.<tailnet>.ts.net:8443'`, or your tunnel's), and put the site's own address in the Mac's `collector/.env` as `ALLOWED_ORIGINS`.
 3. Open the site and enter the dashboard secret. It's swapped for a 12-hour session kept in that tab only.
 
 ## Try it locally
