@@ -74,7 +74,7 @@ https://stats.pokepon.org (or http://127.0.0.1:8090 on the Mac).
 - **The owner's secret** (`DASHBOARD_SECRET`) still signs in as the owner, from the Mac or anywhere: it's the fallback if Roblox sign-in breaks.
 
 **Setting it up (once):**
-1. Creator Dashboard → **OAuth 2.0 Apps** → Create. Redirect URL: `https://stats.pokepon.org/auth/callback`. Permissions: `openid`, `profile`, and one experience permission, `universe-datastores.objects:read` (that's what makes Roblox ask which experiences to share; the dashboard never uses it to read anything). If Roblox doesn't offer it, pick another read permission on experiences and put the full list in `ROBLOX_OAUTH_SCOPES`.
+1. Creator Dashboard → **OAuth 2.0 Apps** → Create. Redirect URL: `https://stats.pokepon.org/auth/callback`. Permissions: `openid`, `profile`, and one experience permission, `universe.user-restriction:read` (that's what makes Roblox ask which experiences to share; the dashboard never uses it to read anything). Only some app categories offer experience permissions: switch the App Category until it's listed. Another one works too: put the full list in `ROBLOX_OAUTH_SCOPES`.
 2. Put its client id and secret in `collector/.env` (`ROBLOX_OAUTH_CLIENT_ID`, `ROBLOX_OAUTH_CLIENT_SECRET`) with `PUBLIC_URL`, and restart the collector.
 3. Make your own owner invite on the Mac: `cd collector && node scripts/invite.js --owner`, open it, sign in with Roblox.
 

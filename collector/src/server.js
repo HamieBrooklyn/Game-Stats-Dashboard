@@ -19,7 +19,9 @@ const MAX_FAILS = 5; // wrong secrets per address per FAIL_WINDOW
 const FAIL_WINDOW = 15 * 60 * 1000;
 const MAX_FAILS_TOTAL = 50; // wrong secrets from everyone per FAIL_WINDOW
 const MAX_TRACKED = 1000; // addresses remembered
-const SITE_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const SITE_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.webm': 'video/webm' };
+// Pages beside the dashboard (for the Roblox OAuth app's listing): /privacy, /terms, /demo.webm
+const EXTRA_PAGES = { '/privacy': 'privacy.html', '/terms': 'terms.html', '/demo.webm': 'demo.webm' };
 // On the Mac the API is the page's own origin, so this replaces site/config.js (which is for a separately hosted site)
 const LOCAL_CONFIG = 'window.STATS_API = location.origin;\n';
 
@@ -32,6 +34,7 @@ function loadSite(siteDir) {
   add('/index.html', path.join(siteDir, 'index.html'));
   const assets = path.join(siteDir, 'assets');
   for (const name of fs.readdirSync(assets)) if (SITE_TYPES[path.extname(name)]) add(`/assets/${name}`, path.join(assets, name));
+  for (const [route, name] of Object.entries(EXTRA_PAGES)) if (fs.existsSync(path.join(siteDir, name))) add(route, path.join(siteDir, name));
   files.set('/config.js', { body: Buffer.from(LOCAL_CONFIG), type: SITE_TYPES['.js'] });
   return files;
 }

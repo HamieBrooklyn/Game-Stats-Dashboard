@@ -42,7 +42,7 @@ export function createAuth({ db, games, secret, oauth = {}, log = () => {}, now 
   const robloxReady = Boolean(oauth.clientId && oauth.clientSecret && oauth.publicUrl);
   const apis = (oauth.base || 'https://apis.roblox.com').replace(/\/$/, '');
   const redirectUri = robloxReady ? `${oauth.publicUrl.replace(/\/$/, '')}/auth/callback` : '';
-  const scopes = oauth.scopes || 'openid profile universe-datastores.objects:read';
+  const scopes = oauth.scopes || 'openid profile universe.user-restriction:read';
   const pending = new Map(); // state -> { verifier, invite, at }
 
   function issue(who, hours) {
