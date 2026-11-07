@@ -1,0 +1,139 @@
+// Builds every view the dashboard asks for from the cache, after each poll, so requests only serve ready JSON
+// (with an ETag). Per game: Overview, Funnels and Live (the panel's math, query.js / funnels.js). All games:
+// totals added up the right way (sums of counts, never averages of percentages), each game's status, and
+// players online over 24 hours from the collector's own 15 s samples.
+
+import crypto from 'node:crypto';
+import * as S from './stats.js';
+import { overviewTab, liveTab, funnelsTab, ratio } from './query.js';
+
+const RANGE_IDS = Object.keys(S.RANGES);
+const SAMPLE_BIN = 300; // the online line's bins: 5 minutes
+
+// What a game's data source looks like right now
+export function gameStatus(game, sources, read, at) {
+  if (!game.universeId) return { state: 'unconfigured', label: 'Not set up', detail: 'No universe id in games.json yet.' };
+  const of = (source) => sources.find((row) => row.game === game.id && row.source === source) || {};
+  const live = of('live'), store = of('datastore');
+  const lastOk = Math.max(live.ok_at || 0, store.ok_at || 0);
+  const lastError = Math.max(live.error_at || 0, store.error_at || 0);
+  if (!lastOk) {
+    return lastError
+      ? { state: 'error', label: 'Unreachable', detail: live.error || store.error }
+      : { state: 'pending', label: 'Starting', detail: 'First reads are on their way.' };
+  }
+  const hasStats = Boolean(read(S.DEFS_KEY)) || Boolean(read(S.dayKey(S.dayOf(at), 0)));
+  if (!hasStats) return { state: 'empty', label: 'No stats yet', detail: "This game's admin panel doesn't record stats yet (update its Spotlight Admin copy)." };
+  const age = at - lastOk;
+  if (age > 300 || (live.error_at || 0) > (live.ok_at || 0)) {
+    return { state: 'stale', label: 'Stale', detail: `Last good read ${Math.round(age / 60)} min ago${live.error ? `: ${live.error}` : ''}` };
+  }
+  return { state: 'ok', label: 'Live', detail: `Updated ${age} s ago` };
+}
+
+// Players online summed over games, in 5-minute bins (each game's average in a bin; gaps stay null)
+function onlineSeries(games, samples, at) {
+  const start = Math.floor((at - 86400) / SAMPLE_BIN) * SAMPLE_BIN;
+  const bins = Math.ceil((at - start) / SAMPLE_BIN);
+  const perGame = new Map();
+  for (const row of samples) {
+    const index = Math.floor((row.t - start) / SAMPLE_BIN);
+    if (index < 0 || index >= bins) continue;
+    let list = perGame.get(row.game);
+    if (!list) perGame.set(row.game, (list = Array.from({ length: bins }, () => ({ sum: 0, n: 0 }))));
+    list[index].sum += row.players;
+    list[index].n++;
+  }
+  const series = games.filter((game) => perGame.has(game.id)).map((game) => ({
+    Name: game.name,
+    Slot: game.slot,
+    Values: perGame.get(game.id).map((bin) => (bin.n ? bin.sum / bin.n : null)),
+  }));
+  const total = Array.from({ length: bins }, (_, index) => {
+    const values = series.map((entry) => entry.Values[index]).filter((value) => value !== null);
+    return values.length ? values.reduce((a, b) => a + b, 0) : null;
+  });
+  const labels = Array.from({ length: bins }, (_, index) => {
+    const date = new Date((start + index * SAMPLE_BIN) * 1000);
+    return `${String(date.getUTCHours()).padStart(2, '0')}:${String(date.getUTCMinutes()).padStart(2, '0')}`;
+  });
+  return { labels, total, series };
+}
+
+function withEtag(body) {
+  const json = JSON.stringify(body);
+  return { json, etag: `"${crypto.createHash('sha1').update(json).digest('base64url').slice(0, 20)}"` };
+}
+
+export function buildViews(games, db, at = S.now()) {
+  const views = new Map();
+  const sources = db.sources();
+  const gameRows = [];
+  const allTotals = Object.fromEntries(RANGE_IDS.map((id) => [id, []]));
+  for (const game of games) {
+    const read = (key) => db.entry(game.id, key)?.value ?? undefined;
+    const status = gameStatus(game, sources, read, at);
+    const servers = db.entry(game.id, '$live')?.value;
+    const base = { game: { id: game.id, name: game.name, slot: game.slot }, status, at, utc: true };
+    let live = null;
+    if (game.universeId) {
+      for (const rangeId of RANGE_IDS) {
+        const overview = overviewTab(game, read, rangeId, at);
+        allTotals[rangeId].push({ game, totals: overview.totals, status });
+        views.set(`/v1/games/${game.id}/overview?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: overview.widgets }));
+        views.set(`/v1/games/${game.id}/funnels?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: funnelsTab(game, read, rangeId, at).widgets }));
+      }
+      live = liveTab(game, read, servers, at);
+      views.set(`/v1/games/${game.id}/live`, withEtag({ ...base, widgets: live.widgets }));
+    }
+    gameRows.push({ game, status, online: live ? live.online : null, servers: live ? live.servers : null });
+  }
+
+  const online = onlineSeries(games, db.ccuSince(at - 86400 - SAMPLE_BIN), at);
+  for (const rangeId of RANGE_IDS) {
+    const list = allTotals[rangeId];
+    const sum = (field) => list.reduce((total, entry) => total + (entry.totals[field] || 0), 0);
+    const reporting = gameRows.filter((row) => row.status.state === 'ok' || row.status.state === 'stale');
+    const d1Size = sum('d1Size'), d1Back = sum('d1Back');
+    views.set(`/v1/overview?range=${rangeId}`, withEtag({
+      at,
+      range: rangeId,
+      coverage: { reporting: reporting.length, total: games.length },
+      kpis: {
+        online: gameRows.reduce((total, row) => total + (row.online || 0), 0),
+        playersSummed: sum('players'),
+        newPlayers: sum('newUsers'),
+        avgSession: ratio(sum('sessionSum'), sum('sessionsEnded')),
+        robux: sum('robux'),
+        conversion: ratio(sum('payers'), sum('playerDays')),
+        d1: d1Size > 0 ? d1Back / d1Size : null,
+      },
+      online,
+      games: gameRows.map((row) => {
+        const entry = list.find((item) => item.game.id === row.game.id);
+        const t = entry?.totals;
+        return {
+          id: row.game.id, name: row.game.name, slot: row.game.slot, status: row.status,
+          online: row.online, servers: row.servers,
+          players: t ? t.players : null, newPlayers: t ? t.newUsers : null,
+          avgSession: t ? ratio(t.sessionSum, t.sessionsEnded) : null, robux: t ? t.robux : null,
+          d1: t && t.d1Size > 0 ? t.d1Back / t.d1Size : null,
+          spark: t ? t.activeSeries : [], labels: t ? t.labels : [],
+        };
+      }),
+    }));
+  }
+  views.set('/v1/feedback', withEtag(feedbackView(games, db)));
+  return views;
+}
+
+// Feedback from every game, newest first: only what the page shows (no player snapshot)
+export function feedbackView(games, db) {
+  const names = Object.fromEntries(games.map((game) => [game.id, game.name]));
+  const items = db.feedback().map(({ game, entry }) => ({
+    game, gameName: names[game] || game, id: entry.Id, at: entry.At, name: entry.Name, displayName: entry.DisplayName,
+    text: String(entry.Text ?? ''), sentiment: entry.Sentiment, tags: Array.isArray(entry.Tags) ? entry.Tags : [],
+    status: entry.Status, resolvedBy: entry.ResolvedBy || null, platform: entry.Device?.Platform || null,
+  }));
+  return { items, games: games.filter((game) => game.feedback).map((game) => ({ id: game.id, name: game.name })) };
+}

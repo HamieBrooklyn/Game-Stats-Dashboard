@@ -1,0 +1,10 @@
+# ~/.cloudflared/config.yml on the Mac (keep your tunnel id and credentials file as created by
+# `cloudflared tunnel create game-stats`). Route the hostname with:
+#   cloudflared tunnel route dns game-stats stats-api.<your-domain>
+tunnel: YOUR_TUNNEL_ID
+credentials-file: /Users/YOU/.cloudflared/YOUR_TUNNEL_ID.json
+
+ingress:
+  - hostname: stats-api.<your-domain>
+    service: http://127.0.0.1:8090
+  - service: http_status:404

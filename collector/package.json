@@ -1,0 +1,12 @@
+{
+  "name": "game-stats-collector",
+  "private": true,
+  "type": "module",
+  "description": "Reads every game's Spotlight Admin stats from Roblox Open Cloud and serves the dashboard's API.",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --test test/*.test.js",
+    "demo": "node scripts/demo.js"
+  }
+}

@@ -1,0 +1,46 @@
+[
+  {
+    "id": "roll-a-car-show",
+    "name": "Roll a Car Show",
+    "universeId": 10768784083,
+    "store": "Stats_v1",
+    "liveMap": "StatsLive_v1",
+    "shards": 1,
+    "journeyFunnel": "Onboarding",
+    "feedback": {
+      "store": "Feedback_v1",
+      "pageSize": 50
+    },
+    "slot": 1
+  },
+  {
+    "id": "odd-game-about-sausage",
+    "name": "An Odd Game About Sausage",
+    "universeId": null,
+    "slot": 2
+  },
+  {
+    "id": "cut-the-chocolate",
+    "name": "Cut The Chocolate",
+    "universeId": null,
+    "slot": 3
+  },
+  {
+    "id": "find-the-pirate-coin",
+    "name": "Find The Pirate Coin",
+    "universeId": null,
+    "slot": 4
+  },
+  {
+    "id": "keyboard-farm",
+    "name": "Keyboard Farm",
+    "universeId": null,
+    "slot": 5
+  },
+  {
+    "id": "pop-the-pixels",
+    "name": "Pop The Pixels",
+    "universeId": null,
+    "slot": 6
+  }
+]
