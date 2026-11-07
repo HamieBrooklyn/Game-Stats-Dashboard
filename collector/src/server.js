@@ -12,6 +12,7 @@
 
 import http from 'node:http';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { createAuth } from './auth.js';
 import path from 'node:path';
 
@@ -26,16 +27,28 @@ const EXTRA_PAGES = { '/privacy': 'privacy.html', '/terms': 'terms.html', '/demo
 const LOCAL_CONFIG = 'window.STATS_API = location.origin;\n';
 
 // The site's files, read once: only these exact paths are ever served, so a URL can't reach anything else.
+// The pages load their code from /assets-<version>/ (version: a hash of every asset), so an update always
+// reaches browsers: Cloudflare tells browsers to keep .js and .css for hours whatever the Mac says, and a new
+// path is never in anyone's cache. (Modules import each other relatively, so they stay in the same version.)
 function loadSite(siteDir) {
   const files = new Map();
   if (!siteDir) return files;
-  const add = (route, file) => files.set(route, { body: fs.readFileSync(file), type: SITE_TYPES[path.extname(file)] });
+  const assets = path.join(siteDir, 'assets');
+  const names = fs.readdirSync(assets).filter((name) => SITE_TYPES[path.extname(name)]).sort();
+  const hash = crypto.createHash('sha1');
+  for (const name of names) hash.update(name).update(fs.readFileSync(path.join(assets, name)));
+  const version = hash.digest('hex').slice(0, 10);
+  const html = (file) => Buffer.from(fs.readFileSync(file, 'utf8').replace(/(["'])assets\//g, `$1assets-${version}/`));
+  const add = (route, file, extra = {}) => files.set(route, { body: path.extname(file) === '.html' ? html(file) : fs.readFileSync(file), type: SITE_TYPES[path.extname(file)], ...extra });
   add('/', path.join(siteDir, 'index.html'));
   add('/index.html', path.join(siteDir, 'index.html'));
-  const assets = path.join(siteDir, 'assets');
-  for (const name of fs.readdirSync(assets)) if (SITE_TYPES[path.extname(name)]) add(`/assets/${name}`, path.join(assets, name));
+  for (const name of names) {
+    add(`/assets/${name}`, path.join(assets, name));
+    add(`/assets-${version}/${name}`, path.join(assets, name), { immutable: true });
+  }
   for (const [route, name] of Object.entries(EXTRA_PAGES)) if (fs.existsSync(path.join(siteDir, name))) add(route, path.join(siteDir, name));
   files.set('/config.js', { body: Buffer.from(LOCAL_CONFIG), type: SITE_TYPES['.js'] });
+  files.version = version;
   return files;
 }
 
@@ -106,7 +119,7 @@ export function createServer({ auth, secret, allowedOrigins, getView, health, lo
       }
       const page = request.method === 'GET' || request.method === 'HEAD' ? site.get(url.pathname) : undefined;
       if (page) {
-        response.writeHead(200, { 'Content-Type': page.type, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
+        response.writeHead(200, { 'Content-Type': page.type, 'Cache-Control': page.immutable ? 'public, max-age=31536000, immutable' : 'no-cache', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY' });
         return response.end(request.method === 'HEAD' ? undefined : page.body);
       }
       if (url.pathname === '/health' && request.method === 'GET') {

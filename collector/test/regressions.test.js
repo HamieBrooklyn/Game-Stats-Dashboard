@@ -168,7 +168,7 @@ test('the Mac serves the site itself, and only the site', async () => {
   const { createServer } = await import('../src/server.js');
   const siteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'site-'));
   fs.mkdirSync(path.join(siteDir, 'assets'));
-  fs.writeFileSync(path.join(siteDir, 'index.html'), '<title>x</title>');
+  fs.writeFileSync(path.join(siteDir, 'index.html'), '<title>x</title><script type="module" src="assets/app.js"></script>');
   fs.writeFileSync(path.join(siteDir, 'assets', 'app.js'), 'ok()');
   fs.writeFileSync(path.join(siteDir, 'secret.txt'), 'no');
   const server = createServer({ secret: 'a-long-enough-secret-for-tests-123', allowedOrigins: [], getView: () => null, health: () => ({ ok: true }), log: () => {}, siteDir });
@@ -179,6 +179,14 @@ test('the Mac serves the site itself, and only the site', async () => {
     assert.match(page.headers.get('content-type'), /text\/html/);
     assert.equal((await fetch(`${base}/assets/app.js`)).status, 200);
     assert.match(await (await fetch(`${base}/config.js`)).text(), /location\.origin/);
+    // The page loads its code from a versioned path that browsers may keep forever
+    const html = await (await fetch(`${base}/`)).text();
+    const versioned = /assets-([0-9a-f]{10})\/app\.js/.exec(html);
+    assert.ok(versioned, 'versioned asset path in the page');
+    const asset = await fetch(`${base}/assets-${versioned[1]}/app.js`);
+    assert.equal(asset.status, 200);
+    assert.match(asset.headers.get('cache-control'), /immutable/);
+    assert.equal((await fetch(`${base}/assets-0000000000/app.js`)).status, 404, 'only the current version');
     for (const route of ['/secret.txt', '/assets/../secret.txt', '/assets/%2e%2e/secret.txt', '/.env', '/assets/']) {
       assert.equal((await fetch(`${base}${route}`)).status, 404, route);
     }
