@@ -19,3 +19,5 @@ jobs:
           node-version: 24
       - run: node --test test/*.test.js
         working-directory: collector
+      - name: Updater reads PORT like the collector (under set -euo pipefail)
+        run: bash deploy/test-update-port.sh

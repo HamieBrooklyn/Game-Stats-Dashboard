@@ -42,7 +42,8 @@ fi
 PID_FILE="$ROOT/collector/data/collector.pid"
 # The collector's port: PORT in collector/.env (read like the collector does: quotes and a trailing comment
 # allowed), else 8090
-PORT="$(grep -E '^[[:space:]]*PORT[[:space:]]*=' "$ROOT/collector/.env" 2>/dev/null | tail -1 | sed -e 's/^[^=]*=//' -e 's/#.*//' | tr -d "\"' \t\r")"
+# (grep finds nothing when PORT isn't set: `|| true` keeps set -e / pipefail from stopping the update here)
+PORT="$({ grep -E '^[[:space:]]*PORT[[:space:]]*=' "$ROOT/collector/.env" 2>/dev/null || true; } | tail -1 | sed -e 's/^[^=]*=//' -e 's/#.*//' | tr -d "\"' \t\r")"
 [[ "$PORT" =~ ^[0-9]+$ ]] || PORT=8090
 # The collector's pid, only if that process really is the collector (a pid can be reused after a crash)
 collector_pid() {
