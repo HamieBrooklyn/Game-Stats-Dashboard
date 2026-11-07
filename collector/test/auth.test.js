@@ -69,6 +69,7 @@ function fakeRoblox() {
     approve(authorizeUrl) {
       const url = new URL(authorizeUrl);
       assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+      assert.equal(url.searchParams.get('prompt'), 'select_account consent', 'Roblox requires the account picker');
       const code = crypto.randomBytes(8).toString('hex');
       codes.set(code, { challenge: url.searchParams.get('code_challenge'), ...next });
       return { code, state: url.searchParams.get('state'), redirect: url.searchParams.get('redirect_uri') };

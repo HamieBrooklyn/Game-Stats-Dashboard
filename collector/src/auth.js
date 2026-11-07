@@ -132,7 +132,9 @@ export function createAuth({ db, games, secret, oauth = {}, log = () => {}, now 
     const verifier = random(32);
     pending.set(state, { verifier, invite: typeof invite === 'string' && invite.length <= 64 ? invite : '', at: now() });
     const query = new URLSearchParams({
-      client_id: oauth.clientId, redirect_uri: redirectUri, scope: scopes, response_type: 'code', prompt: 'consent',
+      client_id: oauth.clientId, redirect_uri: redirectUri, scope: scopes, response_type: 'code',
+      // Roblox requires the account picker for apps with experience scopes; consent lets them re-pick their games
+      prompt: 'select_account consent',
       state, code_challenge: sha256(verifier), code_challenge_method: 'S256',
     });
     return {
