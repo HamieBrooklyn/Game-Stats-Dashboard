@@ -29,6 +29,16 @@ GitHub Pages: site/ (plain HTML/CSS/JS) ── polls the API: live every 15 s, t
 
 ## Set up on the Mac (once)
 
+**Quick way:** in Terminal on the Mac run
+
+```
+curl -fsSL https://raw.githubusercontent.com/HamieBrooklyn/Game-Stats-Dashboard/main/deploy/setup-mac.sh | bash
+```
+
+It does steps 1-8 below for the Tailscale route (asks for the key and your Mac password), checks the key against every game (`collector/scripts/check.js`), and prints the dashboard secret and the Mac's address for `site/config.js`. Safe to run again.
+
+The steps by hand:
+
 1. **Node 24 and cloudflared**: `brew install node@24 cloudflared`
 2. **Clone** this repo somewhere permanent, e.g. `~/Developer/Game-Stats-Dashboard`.
 3. **Open Cloud key** (Creator Dashboard → Open Cloud → API Keys → Create): add every game's universe with

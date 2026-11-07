@@ -86,6 +86,8 @@ export function createServer({ secret, allowedOrigins, getView, health, log }) {
           'Access-Control-Allow-Methods': 'GET, POST',
           'Access-Control-Allow-Headers': 'Authorization, Content-Type, If-None-Match',
           'Access-Control-Max-Age': '600',
+          // Chrome's Private Network Access: the public site may call this private (Tailscale 100.x) address
+          ...(request.headers['access-control-request-private-network'] === 'true' ? { 'Access-Control-Allow-Private-Network': 'true' } : {}),
         });
       }
       if (url.pathname === '/health' && request.method === 'GET') {

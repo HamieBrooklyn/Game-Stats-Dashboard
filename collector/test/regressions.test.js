@@ -151,3 +151,15 @@ test('.env: the collector and deploy/update-mac.sh read PORT the same way', asyn
   assert.equal(parseEnvValue('abc#def'), 'abc#def', 'a # inside a secret stays');
   assert.equal(parseEnvValue('"a # b"'), 'a # b', 'quoted values are kept whole');
 });
+
+test('server: a preflight from the site may reach a private (Tailscale) address', async () => {
+  const { createServer } = await import('../src/server.js');
+  const server = createServer({ secret: 'a-long-enough-secret-for-tests-123', allowedOrigins: ['https://d.example'], getView: () => null, health: () => ({ ok: true }), log: () => {} });
+  const base = await listen(server);
+  const response = await fetch(`${base}/v1/overview`, { method: 'OPTIONS', headers: { Origin: 'https://d.example', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Private-Network': 'true' } });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get('access-control-allow-private-network'), 'true');
+  const other = await fetch(`${base}/v1/overview`, { method: 'OPTIONS', headers: { Origin: 'https://evil.example', 'Access-Control-Request-Private-Network': 'true' } });
+  assert.equal(other.status, 403, 'only for the site itself');
+  server.close();
+});
