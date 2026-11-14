@@ -4,6 +4,8 @@
 import { format, h, timeAgo, utcTime } from './format.js';
 import { lineChart, sparkline } from './charts.js';
 import { renderWidgets, card } from './widgets.js';
+import { engagedCard, milestoneRow } from './milestones.js';
+import { celebrateNew } from './celebrate.js';
 
 const API = String(window.STATS_API || '').replace(/\/$/, '');
 const PAGES = { overview: 'Overview', funnels: 'Funnels', money: 'Monetization', live: 'Live', feedback: 'Feedback', people: 'People' };
@@ -237,7 +239,30 @@ async function overviewAll(quiet, token) {
   const coverage = data.coverage.reporting < data.coverage.total
     ? h('p', { class: 'note' }, `${data.coverage.reporting} of ${data.coverage.total} games are reporting; totals only include those.`)
     : null;
-  show(tiles, coverage, onlineCard(data.online), gamesTable(data.games));
+  show(engagedCard(data.engaged, engagedContext()), tiles, coverage, onlineCard(data.online), gamesTable(data.games), recentMilestones(data.milestones));
+}
+
+// The latest milestones of every game (each game's Overview has them all, and what's next)
+function recentMilestones(items) {
+  if (!items) return null;
+  return card(null,
+    h('h3', { class: 'card-title' }, 'Milestones', h('span', { class: 'meta' }, 'the latest, all games · a game\'s Overview shows what\'s next')),
+    items.length
+      ? h('ul', { class: 'milestone-list' }, items.map((item) => milestoneRow(item, { withGame: true })))
+      : h('p', { class: 'note' }, 'Nothing yet. The first sale and 100 playing at once get a party.'));
+}
+
+// Roblox's highly engaged players, copied in by the owner: saved, then the page again (and its party, if any)
+function engagedContext() {
+  return {
+    owner: me?.role === 'owner',
+    saveEngaged: async (body) => {
+      await apiPost('/v1/admin/engaged', body);
+      for (const key of [...cache.keys()]) if (key.startsWith('/v1/overview') || key.startsWith(`/v1/games/${encodeURIComponent(body.game)}/overview`)) cache.delete(key);
+      render({ quiet: true });
+      checkMilestones();
+    },
+  };
 }
 
 // Players online over 24 hours: the total, plus up to MAX_GAME_LINES games picked with the chips
@@ -302,6 +327,7 @@ async function gamePage(tab, withRange, quiet, token) {
     data.status.state !== 'ok' ? h('span', { class: 'note' }, data.status.detail) : null);
   const body = h('div', { style: 'display:grid;gap:16px' });
   renderWidgets(data.widgets, body, {
+    ...engagedContext(),
     owner: me?.role === 'owner',
     // Roblox's benchmarks, copied in by the owner: saved, then the page again with them
     saveBenchmarks: async (benchmarks) => {
@@ -526,8 +552,25 @@ async function render({ quiet = false } = {}) {
   if (token === renderToken && !document.hidden) timer = setTimeout(() => render({ quiet: true }), REFRESH[state.page] * 1000);
 }
 
+// Milestones: checked every 30 seconds whatever the page, and each new one celebrated once in this browser
+const MILESTONE_CHECK = 30; // seconds
+let checking = false;
+async function checkMilestones() {
+  if (checking || document.hidden || !me) return;
+  checking = true;
+  try {
+    const { data } = await api('/v1/milestones');
+    celebrateNew(data.items);
+  } catch {
+    // the page's own refresh reports connection trouble
+  } finally {
+    checking = false;
+  }
+}
+setInterval(checkMilestones, MILESTONE_CHECK * 1000);
+
 window.addEventListener('hashchange', () => { readHash(); if (state.page !== 'people') lastInvite = null; render(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) render({ quiet: true }); else clearTimeout(timer); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { render({ quiet: true }); checkMilestones(); } else clearTimeout(timer); });
 gameSelect.addEventListener('change', () => go(state.page, gameSelect.value));
 rangeGroup.addEventListener('click', (event) => {
   const range = event.target.closest('button')?.dataset.range;
@@ -583,6 +626,7 @@ if (!API || API.includes('example.com')) {
       return show(message(error.message, 'error'));
     }
     render();
+    checkMilestones();
   })();
 }
 

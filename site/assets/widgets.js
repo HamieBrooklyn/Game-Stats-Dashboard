@@ -1,12 +1,13 @@
 // Draws the panel's widget JSON (the collector builds the same widgets the in-game panel shows): Tiles, Line,
 // Bars, Columns, Funnel, Table, Text and Section, plus the Monetization page's own (money.js) and Roblox's
-// benchmark cards (benchmarks.js). Unknown types are
+// benchmark cards (benchmarks.js), and the highly engaged players counter and milestones (milestones.js). Unknown types are
 // skipped.
 
 import { format, change, h } from './format.js';
 import { lineChart, sparkline, dataTable } from './charts.js';
 import { moneyWidgets } from './money.js';
 import { benchmarksWidget } from './benchmarks.js';
+import { engagedWidget, milestonesWidget } from './milestones.js';
 
 function card(title, ...children) {
   return h('section', { class: 'card' }, title ? h('h3', { class: 'card-title' }, title) : null, ...children);
@@ -200,9 +201,9 @@ const Draw = {
   },
 };
 
-Object.assign(Draw, moneyWidgets, { Benchmarks: benchmarksWidget });
+Object.assign(Draw, moneyWidgets, { Benchmarks: benchmarksWidget, Engaged: engagedWidget, Milestones: milestonesWidget });
 
-// ctx: what some widgets need from the page (Benchmarks: { owner, saveBenchmarks })
+// ctx: what some widgets need from the page (Benchmarks: { owner, saveBenchmarks }, Engaged: { owner, saveEngaged })
 export function renderWidgets(widgets, container, ctx = {}) {
   const nodes = [];
   for (const widget of widgets || []) {

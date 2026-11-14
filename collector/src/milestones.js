@@ -1,0 +1,171 @@
+// Milestones: moments worth a celebration on the dashboard (a game's first sale, 100 playing at once, 250 highly
+// engaged players...). After each build the collector checks every game's all-time numbers against the steps
+// below, and a step reached is saved once with when it was reached (db: milestones), so it's celebrated once,
+// on every computer that opens the dashboard (each browser remembers which ones it has shown).
+//
+// - The first check of a game saves what it had already reached as "quiet": history, never a celebration.
+// - Several steps of one kind reached at once (the owner copying in 140 engaged players): only the highest is
+//   celebrated, the others are saved quiet.
+//
+// Highly engaged players are Roblox's own count (Creator Hub → the experience → Audience Reach): Roblox doesn't
+// say exactly who counts (account age, playtime in the game, spending anywhere on Roblox), and the games' stats
+// have no per-player data, so the owner copies the number in (db: engaged, every copy kept). Roblox Kids and
+// Select need 250 unique plays by them in 60 days; 25 keeps a game listed.
+
+import * as S from './stats.js';
+
+export const ENGAGED_GOAL = 250;
+export const ENGAGED_KEEP = 25;
+
+const short = (value) => {
+  for (const [size, suffix] of [[1e6, 'M'], [1e3, 'K']]) if (value >= size) return `${+(value / size).toFixed(1)}${suffix}`;
+  return String(value);
+};
+
+// kind -> steps, title, detail and how big the party is (small: a burst, big: cannons, epic: fireworks)
+export const KINDS = {
+  sales: {
+    label: 'Sales',
+    steps: [1, 10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000],
+    title: (value) => (value === 1 ? 'First sale!' : `${short(value)} sales`),
+    detail: (value) => (value === 1 ? 'Someone bought something for the first time.' : `${short(value)} purchases, all time.`),
+    level: (value) => (value === 1 || value >= 1000 ? 'epic' : value >= 100 ? 'big' : 'small'),
+  },
+  ccu: {
+    label: 'Playing at once',
+    steps: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000],
+    title: (value) => `${short(value)} playing at once`,
+    detail: (value) => `${short(value)} players in the game at the same time.`,
+    level: (value) => (value >= 100 ? (value === 100 || value >= 1000 ? 'epic' : 'big') : 'small'),
+  },
+  engaged: {
+    label: 'Highly engaged players',
+    steps: [25, 50, 100, 150, 200, ENGAGED_GOAL],
+    title: (value) => (value === ENGAGED_GOAL ? `${ENGAGED_GOAL} highly engaged players!` : `${value} highly engaged players`),
+    detail: (value) => (value === ENGAGED_GOAL
+      ? "Roblox's Kids and Select evaluation goal: 250 unique plays by highly engaged players in 60 days."
+      : `${ENGAGED_GOAL - value} more to Roblox's goal of ${ENGAGED_GOAL}.`),
+    level: (value) => (value === ENGAGED_GOAL ? 'epic' : value >= 100 ? 'big' : 'small'),
+  },
+  players: {
+    label: 'Players',
+    steps: [100, 1000, 5000, 10000, 50000, 100000, 500000, 1000000],
+    title: (value) => `${short(value)} players`,
+    detail: (value) => `${short(value)} different people have played, all time.`,
+    level: (value) => (value >= 10000 ? 'epic' : value >= 1000 ? 'big' : 'small'),
+  },
+  robux: {
+    label: 'Robux spent',
+    steps: [100, 1000, 10000, 100000, 1000000, 10000000],
+    title: (value) => `R$ ${short(value)} spent`,
+    detail: (value) => `Players have spent R$ ${short(value)} in the game, all time (you keep about 70%).`,
+    level: (value) => (value >= 100000 ? 'epic' : value >= 10000 ? 'big' : 'small'),
+  },
+};
+const ORDER = Object.keys(KINDS);
+export const START = '$start'; // saved at a game's first check
+
+// A game's all-time numbers: sums over every day bucket the collector has (new players are each counted on
+// their first day only, so their sum is everyone who ever played), the highest peak of players online the game
+// recorded (day buckets' "ccu") or the collector sampled, and Roblox's last highly engaged count.
+export function gameValues(game, db) {
+  let sales = 0, robux = 0, players = 0, peak = 0;
+  for (const key of db.dayKeys ? db.dayKeys(game.id) : []) {
+    const bucket = db.entry(game.id, key)?.value;
+    if (!bucket || typeof bucket !== 'object') continue;
+    sales += bucket.c?.purchases || 0;
+    robux += bucket.c?.robux || 0;
+    players += bucket.c?.new_users || 0;
+    if ((bucket.m?.ccu || 0) > peak) peak = bucket.m.ccu;
+  }
+  const sampled = db.ccuPeak ? db.ccuPeak(game.id) : 0;
+  const engaged = db.engaged ? db.engaged(game.id) : null;
+  return { sales, robux, players, ccu: Math.max(peak, sampled || 0), engaged: engaged ? engaged.count : 0 };
+}
+
+export const milestoneId = (kind, value) => `${kind}:${value}`;
+
+// Checks every game that's reading normally and saves the steps it has newly reached. Returns what's new.
+export function trackMilestones(games, db, at = S.now(), isReady = () => true) {
+  const added = [];
+  for (const game of games) {
+    if (!game.universeId || !isReady(game)) continue;
+    const reached = new Set(db.milestones(game.id).map((row) => row.id));
+    const first = !reached.has(START);
+    const values = gameValues(game, db);
+    const fresh = [];
+    for (const kind of ORDER) {
+      for (const value of KINDS[kind].steps) {
+        if (values[kind] >= value && !reached.has(milestoneId(kind, value))) fresh.push({ kind, value });
+      }
+    }
+    const top = {};
+    for (const item of fresh) top[item.kind] = Math.max(top[item.kind] || 0, item.value);
+    db.transaction(() => {
+      for (const { kind, value } of fresh) {
+        // The time it was reached: the first sample at that many players online if there is one, else now
+        const when = kind === 'ccu' && db.ccuFirstAtLeast ? db.ccuFirstAtLeast(game.id, value) || at : at;
+        const quiet = first || value < top[kind];
+        db.addMilestone(game.id, milestoneId(kind, value), kind, value, Math.min(when, at), quiet);
+        added.push({ game: game.id, kind, value, quiet });
+      }
+      if (first) db.addMilestone(game.id, START, START, 0, at, true);
+    });
+  }
+  return added;
+}
+
+// One reached milestone, as the site shows it
+export function presentMilestone(row, game) {
+  const kind = KINDS[row.kind];
+  return {
+    Key: `${row.game}:${row.id}:${row.at}`,
+    Game: row.game, GameName: game?.name || row.game, Slot: game?.slot || 1,
+    Kind: row.kind, Value: row.value, At: row.at, Quiet: row.quiet,
+    Title: kind.title(row.value), Detail: kind.detail(row.value), Level: kind.level(row.value),
+  };
+}
+
+// The games' reached milestones, newest first (no first-check markers)
+export function reachedOf(games, db) {
+  const byId = Object.fromEntries(games.map((game) => [game.id, game]));
+  return games
+    .flatMap((game) => db.milestones(game.id))
+    .filter((row) => row.id !== START && KINDS[row.kind] && byId[row.game])
+    .map((row) => presentMilestone(row, byId[row.game]))
+    .sort((a, b) => b.At - a.At || b.Value - a.Value);
+}
+
+// A game's card: what it reached, and the next step of every kind with how far along it is
+export function milestonesWidget(game, db) {
+  const values = gameValues(game, db);
+  const next = ORDER.map((kind) => {
+    const step = KINDS[kind].steps.find((value) => values[kind] < value);
+    if (step === undefined) return null;
+    return { Kind: kind, Label: KINDS[kind].label, Value: step, Title: KINDS[kind].title(step), Current: values[kind], Level: KINDS[kind].level(step) };
+  }).filter(Boolean);
+  return { Type: 'Milestones', Game: game.id, Reached: reachedOf([game], db), Next: next };
+}
+
+// The big counter of Roblox's highly engaged players for one game
+export function engagedEntry(game, db) {
+  const history = db.engagedHistory ? db.engagedHistory(game.id) : [];
+  const last = history[history.length - 1] || null;
+  return {
+    Game: game.id, GameName: game.name, Slot: game.slot || 1,
+    Goal: ENGAGED_GOAL, Keep: ENGAGED_KEEP,
+    Count: last ? last.count : null, At: last ? last.t : null,
+    History: history.slice(-60).map((row) => ({ T: row.t, Count: row.count })),
+  };
+}
+
+export const engagedWidget = (game, db) => ({ Type: 'Engaged', Items: [engagedEntry(game, db)] });
+
+// What the owner sends: { game, count }
+export function cleanEngaged(body, games) {
+  const game = games.find((item) => item.id === body?.game && item.universeId);
+  if (!game) throw new Error('Unknown game.');
+  const count = Number(String(body.count ?? '').replace(/[\s,]/g, ''));
+  if (!Number.isInteger(count) || count < 0 || count > 10_000_000) throw new Error('Type the number Roblox shows (a whole number).');
+  return { game: game.id, count };
+}

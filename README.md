@@ -40,6 +40,14 @@ Browser: https://stats.pokepon.org ── sign in with Roblox (invite only), see
 
   "Clearly" means beyond a 90% interval, so a few lucky sales don't count. An item's price is what its sales cost (Robux ÷ purchases per day), so price changes are found without any setup. Rates and most suggestions need the game to report prompts (`Stats.prompt`) as well as purchases.
 - **Live**: players online and servers, every 15 seconds.
+- **Highly engaged players** (top of the Overview, all games and each game): a big counter towards Roblox's goal of 250, Roblox's own count of unique plays in 60 days by highly engaged players (age-checked, some account age and playtime in the game, a purchase anywhere on Roblox). A game reaching 250 finishes Roblox's evaluation for Roblox Kids and Select; 25 keeps it there. Only Roblox can count them (it doesn't publish the exact rules, and the games' stats have no per-player data), so the owner copies the number in from Creator Hub → the experience → **Audience Reach** with **Copy in** / **Update**. Every copy is kept, for the trend and the change since the last one.
+- **Milestones and celebrations**: when a game reaches a milestone, every open dashboard celebrates it once (a banner plus confetti; the big ones get cannons, the biggest fireworks; "reduce motion" leaves only the banner). A browser that wasn't open shows the ones from the last 7 days it hasn't shown yet. Milestones are all time:
+  - **Sales**: the first sale (fireworks), then 10, 50, 100, 500, 1K... purchases
+  - **Playing at once**: 10, 25, 50, 100 (fireworks), 250, 500, 1K... players online in one game
+  - **Highly engaged players**: 25, 50, 100, 150, 200 and 250 (fireworks)
+  - **Players** (everyone who ever played: 100, 1K, 5K...) and **Robux spent** (R$ 100, 1K, 10K...)
+
+  The collector checks after every read and saves each milestone once (`milestones` in SQLite, backed up with the rest). Its first check of a game saves what the game had already reached quietly, as history; several steps reached at once (copying in 140 engaged players) celebrate only the highest. Each game's Overview lists what it reached (🎉 has the party again) and how far it is from the next step of each kind.
 
 ## Benchmarks (Roblox's, live)
 

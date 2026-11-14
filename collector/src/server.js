@@ -5,7 +5,8 @@
 //   are rate-limited per address and overall. Nothing secret ever goes in a URL except a single-use invite.
 // - Every /v1 view needs a session and only shows that person's games (getView gets who is asking).
 //   Responses are never cached by browsers or Cloudflare (no-store); an unchanged view answers 304.
-// - /v1/admin/*: the owner's People page (invites, members), and Roblox's benchmarks copied in (saveBenchmarks).
+// - /v1/admin/*: the owner's People page (invites, members), and Roblox's numbers copied in: benchmarks
+//   (saveBenchmarks) and highly engaged players (saveEngaged).
 // - CORS allows only the dashboard's own origin(s) (ALLOWED_ORIGINS).
 // - GET /health says whether collection works (no numbers), for watchdogs on the Mac itself: requests that
 //   came through the tunnel (they carry cf-connecting-ip) get 404.
@@ -15,6 +16,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { createAuth } from './auth.js';
 import { cleanBenchmarks } from './benchmarks.js';
+import { cleanEngaged } from './milestones.js';
 import path from 'node:path';
 
 const MAX_FAILS = 5; // wrong secrets per address per FAIL_WINDOW
@@ -56,7 +58,8 @@ function loadSite(siteDir) {
 // auth: createAuth(...) (auth.js). getView(pathname, params, principal) answers a view for that person or null.
 // (Given only `secret`, it's the secret alone, with no Roblox sign-in: for tests and the demo.)
 // games + saveBenchmarks(gameId, value): where the owner's copy of Roblox's benchmarks goes (it rebuilds the views).
-export function createServer({ auth, secret, allowedOrigins, getView, health, log, siteDir, games = [], saveBenchmarks }) {
+// saveEngaged(gameId, count): the owner's copy of Roblox's highly engaged players (it rebuilds the views too).
+export function createServer({ auth, secret, allowedOrigins, getView, health, log, siteDir, games = [], saveBenchmarks, saveEngaged }) {
   auth = auth || createAuth({ db: { member: () => undefined }, games: [], secret });
   const site = loadSite(siteDir);
   const fails = new Map(); // address -> [times]
@@ -189,6 +192,12 @@ export function createServer({ auth, secret, allowedOrigins, getView, health, lo
             const { game, value } = cleanBenchmarks(body, games);
             saveBenchmarks(game, value);
             log(`benchmarks for ${game} saved by ${who.name}`);
+            return send(response, 200, { ok: true }, cors);
+          }
+          if (url.pathname === '/v1/admin/engaged' && saveEngaged) {
+            const { game, count } = cleanEngaged(body, games);
+            saveEngaged(game, count);
+            log(`highly engaged players for ${game} (${count}) saved by ${who.name}`);
             return send(response, 200, { ok: true }, cors);
           }
           if (url.pathname === '/v1/admin/members/remove') {

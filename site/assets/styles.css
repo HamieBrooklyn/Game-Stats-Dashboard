@@ -468,3 +468,85 @@ dialog .button { height: 40px; justify-content: center; }
 }
 .bench-source { margin-top: 2px; }
 .bench-source.genre { color: var(--foreground); }
+
+/* Highly engaged players: the big counter (milestones.js) */
+:root { --engaged-gold: #d99a00; --engaged-track: var(--accent); }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --engaged-gold: #fbbf24; --engaged-track: rgb(255 255 255 / 8%); } }
+:root[data-theme="dark"] { --engaged-gold: #fbbf24; --engaged-track: rgb(255 255 255 / 8%); }
+.engaged { position: relative; overflow: hidden; }
+.engaged::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: linear-gradient(90deg, var(--primary), #8b5cf6, var(--engaged-gold)); }
+.engaged-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px 28px; }
+.engaged-item { display: grid; gap: 8px; min-width: 0; }
+.engaged-game { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted-foreground); }
+.engaged-count { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.engaged-count .spark { align-self: center; width: 80px; height: 24px; }
+.engaged-num { font-size: 48px; line-height: 1; font-weight: 700; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+.engaged-item.single .engaged-num { font-size: 72px; }
+.engaged-goal { font-size: 18px; font-weight: 600; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.engaged-item.single .engaged-goal { font-size: 24px; }
+.engaged-badge { align-self: center; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: var(--engaged-gold); background: color-mix(in srgb, var(--engaged-gold) 14%, transparent); }
+.engaged-bar { position: relative; height: 12px; border-radius: 999px; background: var(--engaged-track); }
+.engaged-item.single .engaged-bar { height: 16px; }
+.engaged-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--primary), #8b5cf6); transition: width 1.2s cubic-bezier(.2,.8,.2,1); position: relative; overflow: hidden; }
+.engaged-fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 35%) 50%, transparent 70%); transform: translateX(-100%); animation: engaged-shine 3.2s ease-in-out infinite 1s; }
+.engaged-item.done .engaged-fill { background: linear-gradient(90deg, #f59e0b, var(--engaged-gold), #fde047); }
+.engaged-item.done .engaged-num { background: linear-gradient(90deg, #f59e0b, var(--engaged-gold), #f59e0b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+@keyframes engaged-shine { 60%, 100% { transform: translateX(100%); } }
+.engaged-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--card); opacity: .9; }
+.engaged-tick.passed { background: rgb(255 255 255 / 55%); }
+.engaged-foot { margin: 0; font-size: 12px; color: var(--muted-foreground); }
+.engaged-foot strong { color: var(--foreground); }
+.engaged-about { margin-top: 12px; max-width: 80ch; }
+.engaged-dialog { width: min(440px, calc(100vw - 32px)); }
+@media (prefers-reduced-motion: reduce) { .engaged-fill { transition: none; } .engaged-fill::after { animation: none; } }
+@media (max-width: 640px) { .engaged-num { font-size: 40px; } .engaged-item.single .engaged-num { font-size: 56px; } }
+
+/* Milestones: what's next and what was reached */
+.milestone-heading { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted-foreground); margin: 4px 0 8px; }
+.milestone-next { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.milestone-goal { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); min-width: 0; }
+.milestone-goal-head { display: flex; gap: 6px; font-size: 11px; }
+.milestone-goal strong { font-size: 13px; }
+.milestone-track { height: 6px; border-radius: 999px; background: var(--engaged-track); overflow: hidden; }
+.milestone-track > div { height: 100%; border-radius: inherit; background: var(--primary); min-width: 2px; }
+.milestone-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.milestone { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin: 0 -8px; border-radius: var(--radius-sm); }
+.milestone:hover { background: var(--accent); }
+.milestone-icon { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 8px; background: var(--accent); font-size: 16px; }
+.milestone.epic .milestone-icon { background: color-mix(in srgb, var(--engaged-gold) 18%, transparent); }
+.milestone-text { display: grid; min-width: 0; flex: 1; font-size: 13px; }
+.milestone-text .muted { font-size: 11px; display: flex; align-items: center; gap: 4px; }
+
+/* Celebrations (celebrate.js): confetti over everything, and the banner */
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 1000; }
+.celebration {
+  position: fixed; z-index: 1001; top: 18px; left: 50%; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px)); display: flex; align-items: center; gap: 14px;
+  padding: 16px 18px; border-radius: 14px; background: var(--card); color: var(--foreground);
+  border: 1px solid var(--border); box-shadow: 0 24px 60px -20px rgb(0 0 0 / 45%);
+  animation: celebration-in .5s cubic-bezier(.2,1.4,.4,1) both; overflow: hidden;
+}
+.celebration.leaving { animation: celebration-out .26s ease-in both; }
+.celebration.big { border-color: color-mix(in srgb, var(--primary) 50%, var(--border)); }
+.celebration.epic { border: 2px solid transparent; background: linear-gradient(var(--card), var(--card)) padding-box, linear-gradient(90deg, #f59e0b, #e87ba4, #8b5cf6, #2a78d6, #1baf7a, #f59e0b) border-box; background-size: 100% 100%, 300% 100%; animation: celebration-in .5s cubic-bezier(.2,1.4,.4,1) both, celebration-border 3s linear infinite; }
+.celebration-icon { flex: none; width: 52px; height: 52px; display: grid; place-items: center; font-size: 28px; border-radius: 12px; background: var(--accent); animation: celebration-bounce 1.2s ease-in-out .4s 2; }
+.celebration.epic .celebration-icon { width: 60px; height: 60px; font-size: 34px; background: color-mix(in srgb, var(--engaged-gold) 18%, transparent); }
+.celebration-body { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.celebration-eyebrow { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted-foreground); }
+.celebration-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.celebration.epic .celebration-title { font-size: 24px; background: linear-gradient(90deg, #f59e0b, #e87ba4, #8b5cf6, #f59e0b); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: celebration-text 2.5s linear infinite; }
+.celebration-detail { font-size: 12px; color: var(--muted-foreground); }
+.celebration .button { flex: none; height: 36px; }
+.celebration.epic.leaving { animation: celebration-out .26s ease-in both; }
+@keyframes celebration-in { from { opacity: 0; transform: translate(-50%, -24px) scale(.9); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes celebration-out { to { opacity: 0; transform: translate(-50%, -16px) scale(.96); } }
+@keyframes celebration-border { to { background-position: 0 0, 300% 0; } }
+@keyframes celebration-text { to { background-position: 200% 0; } }
+@keyframes celebration-bounce { 0%, 100% { transform: none; } 25% { transform: rotate(-12deg) scale(1.15); } 50% { transform: rotate(10deg) scale(1.1); } 75% { transform: rotate(-4deg); } }
+@media (prefers-reduced-motion: reduce) { .celebration, .celebration.epic, .celebration.leaving, .celebration-icon, .celebration.epic .celebration-title { animation: none; } }
+@media (max-width: 640px) {
+  .celebration { top: 10px; flex-wrap: wrap; gap: 10px 12px; padding: 14px; }
+  .celebration-body { flex-basis: calc(100% - 66px); }
+  .celebration .button { width: 100%; justify-content: center; height: 44px; }
+  .celebration-title { font-size: 18px; }
+}

@@ -54,6 +54,14 @@ export function openDatabase(file) {
       universe INTEGER NOT NULL, hour INTEGER NOT NULL, ps REAL NOT NULL, dv INTEGER NOT NULL, cov INTEGER NOT NULL,
       PRIMARY KEY (universe, hour)
     );
+    -- Milestones reached (milestones.js), each saved once: quiet = 1 when it was already reached at the game's
+    -- first check (history, not a celebration). Highly engaged players: Roblox's count, copied in by the owner.
+    CREATE TABLE IF NOT EXISTS milestones (
+      game TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, value REAL NOT NULL, at INTEGER NOT NULL, quiet INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (game, id)
+    );
+    CREATE TABLE IF NOT EXISTS engaged (game TEXT NOT NULL, t INTEGER NOT NULL, count INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS engaged_game_t ON engaged (game, t);
   `);
 
   const statements = {
@@ -103,6 +111,13 @@ export function openDatabase(file) {
     peerHours: db.prepare(`SELECT h.universe, SUM(h.ps) AS ps, SUM(h.dv) AS dv, SUM(h.cov) AS cov FROM peer_hours h JOIN peers p ON p.universe = h.universe
       WHERE p.own = 0 AND p.genre1 = ? AND p.genre2 = ? AND h.hour >= ? GROUP BY h.universe`),
     prunePeerHours: db.prepare('DELETE FROM peer_hours WHERE hour < ?'),
+    dayKeys: db.prepare("SELECT key FROM entries WHERE game = ? AND key GLOB 'D[0-9]*_[0-9]*'"),
+    ccuPeak: db.prepare('SELECT max(players) AS n FROM ccu WHERE game = ?'),
+    ccuFirstAtLeast: db.prepare('SELECT min(t) AS t FROM ccu WHERE game = ? AND players >= ?'),
+    milestones: db.prepare('SELECT game, id, kind, value, at, quiet FROM milestones WHERE game = ? ORDER BY at'),
+    addMilestone: db.prepare('INSERT OR IGNORE INTO milestones (game, id, kind, value, at, quiet) VALUES (?, ?, ?, ?, ?, ?)'),
+    addEngaged: db.prepare('INSERT INTO engaged (game, t, count) VALUES (?, ?, ?)'),
+    engagedHistory: db.prepare('SELECT t, count FROM engaged WHERE game = ? ORDER BY t, rowid'),
     lastDiscovery: db.prepare('SELECT max(found_at) AS at FROM peers WHERE own = 0'),
   };
   const memberOf = (row) => row && { id: row.user_id, username: row.username, displayName: row.display_name, role: row.role, games: JSON.parse(row.games), createdAt: row.created_at, lastLogin: row.last_login };
@@ -241,6 +256,36 @@ export function openDatabase(file) {
         peerCache.set(key, statements.peerHours.all(genre.l1, genre.l2, fromHour));
       }
       return peerCache.get(key);
+    },
+    // A game's day buckets' keys (D<day>_<shard>)
+    dayKeys(game) {
+      return statements.dayKeys.all(game).map((row) => row.key);
+    },
+    // The most players online the collector sampled (samples are kept 35 days)
+    ccuPeak(game) {
+      return statements.ccuPeak.get(game).n || 0;
+    },
+    // When a sample first had at least `players` online, or null
+    ccuFirstAtLeast(game, players) {
+      return statements.ccuFirstAtLeast.get(game, players).t ?? null;
+    },
+    milestones(game) {
+      return statements.milestones.all(game).map((row) => ({ game: row.game, id: row.id, kind: row.kind, value: row.value, at: row.at, quiet: row.quiet === 1 }));
+    },
+    addMilestone(game, id, kind, value, at, quiet) {
+      statements.addMilestone.run(game, id, kind, value, at, quiet ? 1 : 0);
+    },
+    // Roblox's highly engaged players for a game, every copy in order: [{ t, count }]
+    engagedHistory(game) {
+      return statements.engagedHistory.all(game).map((row) => ({ t: row.t, count: row.count }));
+    },
+    engaged(game) {
+      const list = statements.engagedHistory.all(game);
+      const last = list[list.length - 1];
+      return last ? { t: last.t, count: last.count } : null;
+    },
+    addEngaged(game, count, t) {
+      statements.addEngaged.run(game, t, count);
     },
     // When genre games were last found (0 if never)
     lastDiscovery() {

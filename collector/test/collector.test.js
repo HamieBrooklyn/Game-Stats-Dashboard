@@ -83,7 +83,7 @@ test('collector: polls, builds views and serves them privately', async (t) => {
   assert.equal(overview.games.find((game) => game.id === 'g2').status.state, 'unconfigured');
   assert.equal(overview.games.find((game) => game.id === 'g1').status.state, 'ok');
   const week = JSON.parse(views.get('/v1/games/g1/overview?range=7d').json);
-  const players = week.widgets[0].Items.find((item) => item.Label === 'New players');
+  const players = week.widgets.find((widget) => widget.Type === 'Tiles').Items.find((item) => item.Label === 'New players');
   assert.equal(players.Value, 5, 'both shards added up');
   const funnels = JSON.parse(views.get('/v1/games/g1/funnels?range=7d').json);
   assert.ok(funnels.widgets.some((widget) => widget.Type === 'Funnel' && widget.Steps[1].Value === 3));

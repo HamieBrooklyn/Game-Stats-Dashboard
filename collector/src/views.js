@@ -11,6 +11,7 @@ import { presentFunnels } from './present.js';
 import { itemHistory, adviseItems, salesNow, presentMoney, moneyTotals, moneyAll } from './money.js';
 import { benchmarksWidget, WINDOWS as BENCH_WINDOWS } from './benchmarks.js';
 import { peerSessions } from './peers.js';
+import { milestonesWidget, engagedWidget, engagedEntry, reachedOf } from './milestones.js';
 
 const RANGE_IDS = Object.keys(S.RANGES);
 const SAMPLE_BIN = 300; // the online line's bins: 5 minutes
@@ -119,11 +120,14 @@ export function buildViews(games, db, at = S.now()) {
       const gameFeed = feed.filter((sale) => sale.game === game.id);
       // Roblox's benchmark cards, counted live (the same in every range: they have their own 7/30-day windows)
       const benchmarks = benchmarksWidget(game, read, at, db.benchmarks ? db.benchmarks(game.id) : null, benchmarkContext(game, games, db, at));
+      // Roblox's highly engaged players (the big counter) first, the game's milestones last (milestones.js)
+      const engaged = db.engagedHistory ? engagedWidget(game, db) : null;
+      const milestones = db.milestones ? milestonesWidget(game, db) : null;
       for (const rangeId of RANGE_IDS) {
         const overview = overviews[rangeId];
         allTotals[rangeId].push({ game, totals: overview.totals, status });
         const [overviewTiles, ...overviewRest] = overview.widgets;
-        views.set(`/v1/games/${game.id}/overview?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: [overviewTiles, benchmarks, ...overviewRest] }));
+        views.set(`/v1/games/${game.id}/overview?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: [engaged, overviewTiles, benchmarks, ...overviewRest, milestones].filter(Boolean) }));
         const funnels = presentFunnels(funnelsTab(game, read, rangeId, at).widgets, {
           funnels: funnelDefsOf(read(S.DEFS_KEY)),
           notes: game.funnelNotes || {},
@@ -142,6 +146,9 @@ export function buildViews(games, db, at = S.now()) {
   }
 
   const online = onlineSeries(games, db.ccuSince(at - 86400 - SAMPLE_BIN), at);
+  const configured = games.filter((game) => game.universeId);
+  const engaged = db.engagedHistory ? configured.map((game) => engagedEntry(game, db)) : [];
+  const reached = db.milestones ? reachedOf(games, db) : [];
   for (const rangeId of RANGE_IDS) {
     const list = allTotals[rangeId];
     const sum = (field) => list.reduce((total, entry) => total + (entry.totals[field] || 0), 0);
@@ -162,6 +169,8 @@ export function buildViews(games, db, at = S.now()) {
         d1: d1Size > 0 ? d1Back / d1Size : null,
       },
       online,
+      engaged,
+      milestones: reached.slice(0, 8),
       games: gameRows.map((row) => {
         const entry = list.find((item) => item.game.id === row.game.id);
         const t = entry?.totals;
@@ -186,6 +195,8 @@ export function buildViews(games, db, at = S.now()) {
     }));
   }
   views.set('/v1/feedback', withEtag(feedbackView(games, db)));
+  // What the site celebrates: every reached milestone of these games, newest first
+  views.set('/v1/milestones', withEtag({ at, items: reached.slice(0, 200) }));
   return views;
 }
 

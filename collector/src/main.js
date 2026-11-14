@@ -11,6 +11,7 @@ import { createPeers } from './peers.js';
 import { buildViews, gameStatus, viewGate } from './views.js';
 import { createServer } from './server.js';
 import { createAuth } from './auth.js';
+import { trackMilestones } from './milestones.js';
 import * as S from './stats.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -65,6 +66,19 @@ export function main() {
   fs.writeFileSync(pidFile, String(process.pid));
   const client = createClient(process.env.ROBLOX_OPEN_CLOUD_API_KEY);
 
+  // Milestones reached since the last build are saved before the views are built, so they show at once.
+  // Only games reading normally are checked: a game that's still loading would look like it had nothing yet.
+  const checkMilestones = () => {
+    try {
+      const at = S.now();
+      const sources = db.sources();
+      const added = trackMilestones(games, db, at, (game) => gameStatus(game, sources, (key) => db.entry(game.id, key)?.value, at).state === 'ok');
+      for (const item of added) if (!item.quiet) log(`milestone: ${item.game} reached ${item.kind} ${item.value}`);
+    } catch (error) {
+      log(`checking milestones failed: ${error.stack || error}`);
+    }
+  };
+
   let views = new Map();
   let scoped = new Map(); // "<game ids>" -> views built for just those games (people who see some of them)
   let lastBuild = 0;
@@ -75,6 +89,7 @@ export function main() {
     setTimeout(() => {
       buildQueued = false;
       try {
+        checkMilestones();
         views = buildViews(games, db);
         scoped = new Map();
         lastBuild = S.now();
@@ -123,10 +138,19 @@ export function main() {
     scoped = new Map();
     lastBuild = S.now();
   };
+  // The owner's copy of Roblox's highly engaged players: saved, milestones checked, every view rebuilt
+  const saveEngaged = (gameId, count) => {
+    db.addEngaged(gameId, count, S.now());
+    checkMilestones();
+    views = buildViews(games, db);
+    scoped = new Map();
+    lastBuild = S.now();
+  };
   const server = createServer({
     auth,
     games,
     saveBenchmarks,
+    saveEngaged,
     allowedOrigins: process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
     siteDir: path.resolve(ROOT, '..', 'site'),
     getView,
@@ -138,6 +162,7 @@ export function main() {
 
   poller.start();
   peers.start();
+  checkMilestones();
   views = buildViews(games, db);
 
   // Housekeeping: the dead-man ping, online samples and the sales feed kept 35 days, the daily backup
