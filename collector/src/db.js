@@ -44,6 +44,16 @@ export function openDatabase(file) {
     -- Roblox's benchmarks (50th/90th percentiles and Roblox's own numbers) the owner copied in, per game (JSON;
     -- benchmarks.js). Only Roblox can count them, so they can't be read back from anywhere: backed up with the rest.
     CREATE TABLE IF NOT EXISTS benchmarks (game TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    -- Other games in our games' Roblox genres (peers.js), and ours (own = 1): their genre and their last sample
+    CREATE TABLE IF NOT EXISTS peers (
+      universe INTEGER PRIMARY KEY, name TEXT, genre1 TEXT, genre2 TEXT, own INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1, playing INTEGER, found_at INTEGER, last_t INTEGER, last_playing INTEGER, last_visits INTEGER
+    );
+    -- Per game and hour: player-seconds, new visits and seconds covered by samples (average session = ps / dv)
+    CREATE TABLE IF NOT EXISTS peer_hours (
+      universe INTEGER NOT NULL, hour INTEGER NOT NULL, ps REAL NOT NULL, dv INTEGER NOT NULL, cov INTEGER NOT NULL,
+      PRIMARY KEY (universe, hour)
+    );
   `);
 
   const statements = {
@@ -80,11 +90,27 @@ export function openDatabase(file) {
     benchmarks: db.prepare('SELECT value, updated_at FROM benchmarks WHERE game = ?'),
     putBenchmarks: db.prepare(`INSERT INTO benchmarks (game, value, updated_at) VALUES (?, ?, ?)
       ON CONFLICT (game) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
+    putPeer: db.prepare(`INSERT INTO peers (universe, name, genre1, genre2, own, active, playing, found_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+      ON CONFLICT (universe) DO UPDATE SET name = excluded.name, genre1 = excluded.genre1, genre2 = excluded.genre2,
+        own = max(own, excluded.own), active = 1, playing = excluded.playing, found_at = excluded.found_at`),
+    peer: db.prepare('SELECT name, genre1, genre2, own, last_t, last_playing, last_visits FROM peers WHERE universe = ?'),
+    activePeers: db.prepare('SELECT universe FROM peers WHERE own = 0 AND active = 1'),
+    trimPeers: db.prepare(`UPDATE peers SET active = 0 WHERE own = 0 AND genre1 = ? AND genre2 = ? AND universe NOT IN
+      (SELECT universe FROM peers WHERE own = 0 AND genre1 = ? AND genre2 = ? AND active = 1 ORDER BY playing DESC LIMIT ?)`),
+    peerLast: db.prepare('UPDATE peers SET last_t = ?, last_playing = ?, last_visits = ?, playing = ?, name = coalesce(?, name), genre1 = coalesce(?, genre1), genre2 = coalesce(?, genre2) WHERE universe = ?'),
+    addPeerHour: db.prepare(`INSERT INTO peer_hours (universe, hour, ps, dv, cov) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT (universe, hour) DO UPDATE SET ps = ps + excluded.ps, dv = dv + excluded.dv, cov = cov + excluded.cov`),
+    peerHours: db.prepare(`SELECT h.universe, SUM(h.ps) AS ps, SUM(h.dv) AS dv, SUM(h.cov) AS cov FROM peer_hours h JOIN peers p ON p.universe = h.universe
+      WHERE p.own = 0 AND p.genre1 = ? AND p.genre2 = ? AND h.hour >= ? GROUP BY h.universe`),
+    prunePeerHours: db.prepare('DELETE FROM peer_hours WHERE hour < ?'),
+    lastDiscovery: db.prepare('SELECT max(found_at) AS at FROM peers WHERE own = 0'),
   };
   const memberOf = (row) => row && { id: row.user_id, username: row.username, displayName: row.display_name, role: row.role, games: JSON.parse(row.games), createdAt: row.created_at, lastLogin: row.last_login };
 
   // In-memory copy of parsed entries, so views don't parse JSON on every build
   const parsed = new Map();
+  let peerVersion = 0;
+  const peerCache = new Map();
 
   return {
     db,
@@ -178,6 +204,51 @@ export function openDatabase(file) {
     },
     putBenchmarks(game, value, at) {
       statements.putBenchmarks.run(game, JSON.stringify(value), at);
+    },
+    // Genre peers (peers.js)
+    putPeer({ universe, name, l1, l2, own, playing }, at) {
+      statements.putPeer.run(universe, name || null, l1 || null, l2 || null, own ? 1 : 0, playing || 0, at);
+    },
+    // { name, l1, l2, own } or null
+    peer(universe) {
+      const row = statements.peer.get(universe);
+      return row ? { name: row.name, l1: row.genre1, l2: row.genre2, own: row.own === 1 } : null;
+    },
+    activePeers() {
+      return statements.activePeers.all().map((row) => row.universe);
+    },
+    trimPeers(genre, max) {
+      statements.trimPeers.run(genre.l1, genre.l2, genre.l1, genre.l2, max);
+    },
+    // The last sample of a game: { t, playing, visits } or null
+    peerLast(universe) {
+      const row = statements.peer.get(universe);
+      return row && row.last_t ? { t: row.last_t, playing: row.last_playing, visits: row.last_visits } : null;
+    },
+    // A sample: it becomes the game's last one, and what it adds goes to its hour
+    putPeerSample(universe, last, add, hour, genre = {}) {
+      statements.peerLast.run(last.t, last.playing, last.visits, last.playing, null, genre.l1 || null, genre.l2 || null, universe);
+      if (add) {
+        statements.addPeerHour.run(universe, hour, add.ps, add.dv, add.cov);
+        peerVersion++;
+      }
+    },
+    // Per game of the genre since `fromHour`: { universe, ps, dv, cov } (cached until a sample lands)
+    peerHours(genre, fromHour) {
+      const key = `${genre.l1}\u0000${genre.l2}\u0000${fromHour}\u0000${peerVersion}`;
+      if (!peerCache.has(key)) {
+        if (peerCache.size > 50) peerCache.clear();
+        peerCache.set(key, statements.peerHours.all(genre.l1, genre.l2, fromHour));
+      }
+      return peerCache.get(key);
+    },
+    // When genre games were last found (0 if never)
+    lastDiscovery() {
+      return statements.lastDiscovery.get().at || 0;
+    },
+    prunePeerHours(beforeHour) {
+      statements.prunePeerHours.run(beforeHour);
+      peerVersion++;
     },
     transaction(fn) {
       db.exec('BEGIN IMMEDIATE');

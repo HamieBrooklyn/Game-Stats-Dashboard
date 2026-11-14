@@ -60,7 +60,7 @@ function bar(item) {
     ? h('div', { class: 'bench-marks' },
       h('span', { class: 'bench-mark', style: 'left:50%' }, h('b', {}, '50th'), show(item.Benchmark.P50, item.Format)),
       h('span', { class: 'bench-mark end' }, h('b', {}, '90th'), show(item.Benchmark.P90, item.Format)))
-    : h('div', { class: 'bench-marks empty' }, 'No Roblox benchmark copied in yet');
+    : h('div', { class: 'bench-marks empty' }, 'No benchmark yet');
   return h('div', { class: `bench-bar${pct === null ? ' none' : ''}`, role: 'img', 'aria-label': pct === null ? 'No percentile yet' : `${ordinal(pct)} percentile among similar experiences` },
     h('div', { class: 'bench-track' }, segments), marks);
 }
@@ -72,7 +72,8 @@ function infoButton(item, windowLabel) {
     if (Number.isFinite(item.Roblox)) lines.push(`Averaged the way Roblox does (the mean of each complete day): ${show(item.Roblox, item.Format)}.`);
     if (item.Small) lines.push('Small sample: a handful of players can move this a lot.');
   }
-  if (item.Benchmark) lines.push(`The 50th and 90th are Roblox's: half of similar experiences are below ${show(item.Benchmark.P50, item.Format)}, and 1 in 10 is above ${show(item.Benchmark.P90, item.Format)}.`);
+  if (item.Benchmark) lines.push(`50th and 90th: ${item.Source?.Label || "Roblox's"}. Half are below ${show(item.Benchmark.P50, item.Format)}, and 1 in 10 is above ${show(item.Benchmark.P90, item.Format)}.`);
+  if (item.Source?.Kind === 'genre') lines.push("Their average session is worked out from Roblox's public numbers: players online × time ÷ new visits. On our own games that runs about 8% high.");
   const text = lines.join(' ');
   const pop = h('div', { class: 'bench-pop', hidden: true, role: 'tooltip' }, lines.map((line) => h('p', {}, line)));
   const button = h('button', { class: 'bench-info', type: 'button', 'aria-label': `About ${item.Title}`, 'aria-expanded': 'false', title: text }, 'i');
@@ -93,12 +94,13 @@ function benchCard(item, windowLabel, savedAt) {
   } else if (item.FromRoblox && Number.isFinite(item.FromRoblox.Value)) {
     foot = h('p', { class: 'bench-foot' }, `Roblox showed ${show(item.FromRoblox.Value, item.Format)}${Number.isFinite(item.FromRoblox.Percentile) ? ` (${ordinal(item.FromRoblox.Percentile)})` : ''}${day ? ` on ${day}` : ''}`, item.Small ? ' · small sample' : '');
   } else if (item.Small) foot = h('p', { class: 'bench-foot' }, 'Small sample');
+  const source = item.Source && item.Source.Kind !== 'roblox' ? h('p', { class: `bench-foot bench-source ${item.Source.Kind}` }, `50th / 90th: ${item.Source.Label}`) : null;
   return h('div', { class: 'bench-card' },
     h('div', { class: 'bench-head' },
       h('span', { class: 'bench-title', title: `${item.Title} (${item.Live ? windowLabel : 'from Roblox'})` }, `${item.Title} (${item.Live ? windowLabel : 'from Roblox'})`),
       ...infoButton(item, windowLabel)),
     h('div', { class: 'bench-value' }, valueNode(item.Value, item.Format), item.Live ? changePill(item.Value, item.Prev) : h('span', { class: 'bench-tag' }, 'Roblox only')),
-    bar(item), foot);
+    bar(item), source, foot);
 }
 
 // The editor: paste Roblox's section, or type the numbers in
@@ -111,7 +113,9 @@ function editor(widget, save) {
     return h('td', {}, input);
   };
   const rows = latest.map((item) => {
-    const saved = { p50: item.Benchmark?.P50, p90: item.Benchmark?.P90, value: item.FromRoblox?.Value, pct: item.FromRoblox?.Percentile };
+    // Only Roblox's own marks for this game (not the genre's or another game's, which would be saved as Roblox's)
+    const own = item.Source?.Kind === 'roblox' ? item.Benchmark : null;
+    const saved = { p50: own?.P50, p90: own?.P90, value: item.FromRoblox?.Value, pct: item.FromRoblox?.Percentile };
     const unit = UNITS[item.Id];
     return h('tr', {},
       h('th', { scope: 'row' }, item.Title, h('span', { class: 'muted' }, ` (${unit})`)),
@@ -197,9 +201,9 @@ export function benchmarksWidget(widget, ctx = {}) {
   return h('section', { class: 'card bench' },
     h('div', { class: 'bench-top' },
       h('div', {},
-        h('h2', { class: 'bench-heading' }, 'Benchmarks based on ', h('span', { class: 'bench-basis-pill' }, widget.BasisLabel || 'Roblox (not copied in yet)')),
+        h('h2', { class: 'bench-heading' }, 'Benchmarks based on ', h('span', { class: 'bench-basis-pill' }, widget.BasisLabel || 'Roblox-wide numbers')),
         h('p', { class: 'note' }, h('span', { class: 'dot ok' }), ' Live from the game\'s own stats, every minute. ',
-          saved ? `Percentiles from Roblox, copied ${saved}.` : "Copy Roblox's percentiles in to see where you stand.")),
+          saved ? `Percentiles from Roblox, copied ${saved}; ` : '', 'each card says where its 50th and 90th come from.')),
       h('span', { class: 'spacer' }),
       picker,
       ctx.owner && ctx.saveBenchmarks ? h('button', { class: 'button', type: 'button', onclick: () => editor(widget, ctx.saveBenchmarks) }, saved ? 'Update from Roblox' : 'Copy in from Roblox') : null),

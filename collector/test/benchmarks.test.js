@@ -193,7 +193,8 @@ test('the widget: live cards with Roblox marks, and play-through rate only from 
   assert.equal(ptr.Percentile, 55);
   const bare = benchmarksWidget(GAME, read, AT, null);
   assert.equal(bare.BasisLabel, null);
-  assert.equal(bare.Windows[7][0].Benchmark, null);
+  assert.equal(bare.Windows[7][0].Source.Kind, 'published', 'nothing copied in: the Roblox-wide medians');
+  assert.equal(bare.Windows[7][3].Benchmark, null, 'none published for conversion');
   assert.equal(bare.Windows[7][5].Value, null);
 });
 

@@ -16,11 +16,16 @@
 // size deserves. Roblox averages the daily values of complete days instead; that number is sent too ("Roblox"),
 // to check one against the other.
 //
-// The 50th and 90th percentiles come from Roblox (its peer group: experiences your players also play, else the
-// genre, else all experiences; refreshed daily). Nobody outside Roblox can count those, so the owner copies them
-// in (benchmarks table). Where the live number falls between them: a curve through the two marks (and through
-// Roblox's own number at its own percentile, when copied in), straight in log value against the normal
-// quantile, so a log-normal spread of experiences. On Roblox's own example that lands within a few points.
+// The 50th and 90th percentiles: each card takes the best source there is (Source on the card says which):
+// 1. Roblox's own, copied in by the owner (Roblox's peer group: experiences your players also play, else the
+//    genre, else all experiences; Roblox only shows them once a game has 100+ daily users).
+// 2. Average playtime only: measured live on the other games in the game's Roblox genre (peers.js), from
+//    Roblox's public data. The percentile is then the share of those games below.
+// 3. Roblox's, copied in for another of our games in the same Roblox genre.
+// 4. Published Roblox-wide medians (GameAnalytics' 2026 Roblox report), for playtime, D1 and D7.
+// Where the live number falls between two marks: a curve through them (and through Roblox's own number at its
+// own percentile, when copied in), straight in log value against the normal quantile, so a log-normal spread
+// of experiences. On Roblox's own example that lands within 10 points on 5 of 6 cards.
 
 import * as S from './stats.js';
 
@@ -97,6 +102,37 @@ export function percentileOf(value, bench) {
   return 100 * normCdf(z);
 }
 
+// GameAnalytics, 2026 Roblox Benchmark Report (games with 1M+ monthly users): medians and the top 5% / 1%.
+// The 90th is read off a log-normal through them. Not genre-specific: the last resort.
+const Z95 = 1.6448536269514722, Z99 = 2.3263478740408408;
+const ninetieth = (median, top, z) => Math.exp(Math.log(median) + (Z90 / z) * (Math.log(top) - Math.log(median)));
+export const PUBLISHED = {
+  playtime: { p50: 9.8 * 60, p90: ninetieth(9.8 * 60, 16.6 * 60, Z95) },
+  d1: { p50: 0.103, p90: ninetieth(0.103, 0.222, Z99) },
+  d7: { p50: 0.016, p90: ninetieth(0.016, 0.091, Z99) },
+};
+const PUBLISHED_LABEL = 'Roblox-wide medians (GameAnalytics 2026 Roblox report), not your genre';
+const MIN_PEERS = 10; // genre games needed before their spread is used
+
+// The value at fraction `p` of sorted `values` (linear between neighbours)
+export function quantile(values, p) {
+  if (!values.length) return null;
+  const at = p * (values.length - 1);
+  const low = Math.floor(at), high = Math.ceil(at);
+  return values[low] + (values[high] - values[low]) * (at - low);
+}
+
+// The share of sorted `values` below `value` (0-100), ties counting half
+export function rankOf(values, value) {
+  if (!values.length || value === null || value === undefined || !Number.isFinite(value)) return null;
+  let below = 0, equal = 0;
+  for (const entry of values) {
+    if (entry < value) below++;
+    else if (entry === value) equal++;
+  }
+  return (100 * (below + equal / 2)) / values.length;
+}
+
 // --- Counting ---
 // A day's counters, added up over shards
 function dayCounters(game, read, day) {
@@ -143,29 +179,62 @@ export function measure(metric, game, read, days, at = S.now()) {
   return { value: now.value, prev: before.value, size: now.size, roblox: meanOfDays(range(today - days, today - 1, rowOf)), through: today };
 }
 
-// The widget for one game's Overview. `saved`: the owner's copy of Roblox's numbers ({ basis, at, metrics }).
-export function benchmarksWidget(game, read, at = S.now(), saved = null) {
+// Where a card's 50th and 90th come from (the best there is): { bench, source } or null.
+// context: { genre, peers: { [days]: peerSessions(...) }, others: [Roblox benchmarks saved for our other games
+// in the same Roblox genre] }
+function marksFor(metric, days, marks, context) {
+  const own = marks[metric.id];
+  if (own && own.p50 > 0 && own.p90 > own.p50) return { bench: own, source: { kind: 'roblox', label: "Roblox's benchmark for this game" } };
+  if (metric.robloxOnly) return null;
+  const peers = context.peers?.[days];
+  if (metric.id === 'playtime' && peers && peers.count >= MIN_PEERS) {
+    return {
+      bench: { p50: quantile(peers.values, 0.5), p90: quantile(peers.values, 0.9), values: peers.values },
+      source: { kind: 'genre', label: `${peers.count} ${context.genre?.l2 || ''} games on Roblox (${context.genre?.l1 || ''}), measured live${peers.hours < days * 24 ? ` over the last ${peers.hours} h so far` : ''}` },
+    };
+  }
+  for (const other of context.others || []) {
+    const theirs = other?.metrics?.[metric.id];
+    if (theirs && theirs.p50 > 0 && theirs.p90 > theirs.p50) {
+      return { bench: { p50: theirs.p50, p90: theirs.p90 }, source: { kind: 'other', label: `Roblox's benchmark for another of your ${context.genre?.l1 || ''} games` } };
+    }
+  }
+  if (PUBLISHED[metric.id]) return { bench: PUBLISHED[metric.id], source: { kind: 'published', label: PUBLISHED_LABEL } };
+  return null;
+}
+
+// The widget for one game's Overview. `saved`: the owner's copy of Roblox's numbers ({ basis, at, metrics });
+// `context`: see marksFor.
+export function benchmarksWidget(game, read, at = S.now(), saved = null, context = {}) {
   const stored = saved && typeof saved === 'object' ? saved : {};
   const marks = stored.metrics || {};
   const windows = {};
   for (const days of WINDOWS) {
     windows[days] = METRICS.map((metric) => {
       const bench = marks[metric.id] || {};
-      const benchmark = bench.p50 > 0 && bench.p90 > bench.p50 ? { P50: bench.p50, P90: bench.p90 } : null;
       const fromRoblox = bench.value >= 0 && Number.isFinite(bench.value) ? { Value: bench.value, Percentile: Number.isFinite(bench.pct) ? bench.pct : null } : null;
+      const found = marksFor(metric, days, marks, context);
+      const benchmark = found ? { P50: found.bench.p50, P90: found.bench.p90 } : null;
+      const source = found ? { Kind: found.source.kind, Label: found.source.label } : null;
       if (metric.robloxOnly) {
-        return { Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: false, Value: fromRoblox?.Value ?? null, Prev: null, Percentile: fromRoblox?.Percentile ?? null, Benchmark: benchmark, FromRoblox: fromRoblox };
+        return { Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: false, Value: fromRoblox?.Value ?? null, Prev: null, Percentile: fromRoblox?.Percentile ?? null, Benchmark: benchmark, Source: source, FromRoblox: fromRoblox };
       }
       const result = measure(metric, game, read, days, at);
+      let percentile = null;
+      if (found?.bench.values) percentile = rankOf(found.bench.values, result.value);
+      else if (found) percentile = percentileOf(result.value, found.source.kind === 'roblox' ? found.bench : { p50: found.bench.p50, p90: found.bench.p90 });
       return {
         Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: true,
         Value: result.value, Prev: result.prev, Roblox: result.roblox, Size: result.size, Small: result.size < (SMALL[metric.id] || 0),
-        Percentile: benchmark ? percentileOf(result.value, bench) : null,
-        Benchmark: benchmark, FromRoblox: fromRoblox,
+        Percentile: percentile, Benchmark: benchmark, Source: source, FromRoblox: fromRoblox,
       };
     });
   }
-  return { Type: 'Benchmarks', Game: game.id, Basis: BASES[stored.basis] ? stored.basis : null, BasisLabel: BASES[stored.basis] || null, SavedAt: stored.at || null, Windows: windows };
+  const genre = context.genre?.l1 && context.genre?.l2 ? `${context.genre.l1} → ${context.genre.l2}` : null;
+  return {
+    Type: 'Benchmarks', Game: game.id, Basis: BASES[stored.basis] ? stored.basis : null,
+    BasisLabel: BASES[stored.basis] || (genre ? `your genre, ${genre}` : null), Genre: genre, SavedAt: stored.at || null, Windows: windows,
+  };
 }
 
 // Checks what the owner sends (POST /v1/admin/benchmarks) and keeps only known, sane numbers. Units are the

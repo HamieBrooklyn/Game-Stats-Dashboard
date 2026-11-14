@@ -54,7 +54,11 @@ The game's Overview shows Roblox's Benchmarks cards. The value on each is counte
 | Play-through rate | Plays per home-recommendation impression | not countable (only Roblox has impressions): Roblox's own number |
 
 - **Live:** the window (7 or 30 days, like Roblox's) ends now, today so far included, and is pooled (all tops ÷ all bottoms), so a quiet day can't swing it. Roblox averages complete days instead; that number is in each card's ⓘ, to compare.
-- **The 50th and 90th:** only Roblox can count them (its peer group is experiences your players also play, then your genre, then all experiences; refreshed daily). The owner copies them in: **Copy in from Roblox** on the Overview, then paste Roblox's whole Benchmarks section (or type them in). They move slowly, so every week or two is plenty.
+- **The 50th and 90th:** Roblox only shows them once a game has 100+ daily users, so each card takes the best source there is, and says which:
+  1. Roblox's own for this game, copied in by the owner (**Copy in from Roblox** on the Overview: paste Roblox's whole Benchmarks section, or type them in; every week or two is plenty).
+  2. Average playtime: **measured live on the other games in the game's Roblox genre** (e.g. Simulation → Tycoon). Roblox's public data has every game's players online and visit count, and average session = players online × time ÷ new visits (on our own games, visits are ~92% of sessions, so it runs a little high). The collector finds them from Roblox's charts and search (only the ones Roblox files under the same genre, with 100+ visits a day, like Roblox's own benchmark pool), samples them every 10 minutes, and the percentile is your place among them. Retention, conversion and revenue aren't public for other games.
+  3. Roblox's benchmarks copied in for another of our games in the same genre.
+  4. Roblox-wide medians from GameAnalytics' 2026 Roblox report (playtime, D1, D7), not genre-specific.
 - **The percentile:** a log-normal spread through Roblox's two marks (and through Roblox's own value at its own percentile, if copied in), rounded down like Roblox. On a real Roblox section that lands within 10 points of Roblox's on 5 of 6 cards; with Roblox's own point copied in, it's exact there.
 - Days are UTC. If Roblox's numbers differ from these, the usual reasons: a different day boundary, Roblox counting sessions or purchases the game's stats don't see, and Roblox's daily averaging.
 - **Feedback**: every game's feedback, newest first, filter by game, sentiment, status or text.

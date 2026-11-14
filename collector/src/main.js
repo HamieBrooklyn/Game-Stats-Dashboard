@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { openDatabase } from './db.js';
 import { createClient } from './opencloud.js';
 import { createPoller } from './poller.js';
+import { createPeers } from './peers.js';
 import { buildViews, gameStatus, viewGate } from './views.js';
 import { createServer } from './server.js';
 import { createAuth } from './auth.js';
@@ -84,6 +85,8 @@ export function main() {
   };
 
   const poller = createPoller({ games, client, db, log, onChange: rebuild });
+  // Other games in our games' Roblox genres, from Roblox's public data (the genre benchmark for playtime)
+  const peers = createPeers({ games, db, log, onChange: rebuild });
 
   function health() {
     const at = S.now();
@@ -134,6 +137,7 @@ export function main() {
   server.listen(port, '127.0.0.1', () => log(`collector listening on 127.0.0.1:${port}, ${games.length} games`));
 
   poller.start();
+  peers.start();
   views = buildViews(games, db);
 
   // Housekeeping: the dead-man ping, online samples and the sales feed kept 35 days, the daily backup
@@ -156,6 +160,7 @@ export function main() {
   const shutdown = (signal) => {
     log(`${signal}: stopping`);
     poller.stop();
+    peers.stop();
     for (const timer of timers) clearInterval(timer);
     server.close(() => {
       db.close();

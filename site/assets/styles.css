@@ -466,3 +466,5 @@ dialog .button { height: 40px; justify-content: center; }
   .bench-grid { grid-template-columns: 1fr; }
   .bench-table .input { height: 40px; width: 72px; }
 }
+.bench-source { margin-top: 2px; }
+.bench-source.genre { color: var(--foreground); }

@@ -9,7 +9,8 @@ import * as S from './stats.js';
 import { overviewTab, liveTab, funnelsTab, moneyTab, funnelDefsOf, ratio } from './query.js';
 import { presentFunnels } from './present.js';
 import { itemHistory, adviseItems, salesNow, presentMoney, moneyTotals, moneyAll } from './money.js';
-import { benchmarksWidget } from './benchmarks.js';
+import { benchmarksWidget, WINDOWS as BENCH_WINDOWS } from './benchmarks.js';
+import { peerSessions } from './peers.js';
 
 const RANGE_IDS = Object.keys(S.RANGES);
 const SAMPLE_BIN = 300; // the online line's bins: 5 minutes
@@ -117,7 +118,7 @@ export function buildViews(games, db, at = S.now()) {
       const now = salesNow(game, read, at);
       const gameFeed = feed.filter((sale) => sale.game === game.id);
       // Roblox's benchmark cards, counted live (the same in every range: they have their own 7/30-day windows)
-      const benchmarks = benchmarksWidget(game, read, at, db.benchmarks ? db.benchmarks(game.id) : null);
+      const benchmarks = benchmarksWidget(game, read, at, db.benchmarks ? db.benchmarks(game.id) : null, benchmarkContext(game, games, db, at));
       for (const rangeId of RANGE_IDS) {
         const overview = overviews[rangeId];
         allTotals[rangeId].push({ game, totals: overview.totals, status });
@@ -186,6 +187,23 @@ export function buildViews(games, db, at = S.now()) {
   }
   views.set('/v1/feedback', withEtag(feedbackView(games, db)));
   return views;
+}
+
+// What a game's benchmark cards compare against besides its own Roblox numbers: its Roblox genre, the other
+// games of that genre measured live (peers.js), and Roblox's benchmarks copied in for our other games of the
+// same genre (the same subgenre first)
+function benchmarkContext(game, games, db, at) {
+  if (!db.peer) return {};
+  const genre = db.peer(Number(game.universeId));
+  if (!genre?.l1 || !genre?.l2) return {};
+  const peers = Object.fromEntries(BENCH_WINDOWS.map((days) => [days, peerSessions(db.peerHours(genre, S.hourOf(at) - days * 24), days)]));
+  const others = games
+    .filter((other) => other.id !== game.id && other.universeId)
+    .map((other) => ({ genre: db.peer(Number(other.universeId)), saved: db.benchmarks(other.id) }))
+    .filter((other) => other.saved && other.genre?.l1 === genre.l1)
+    .sort((a, b) => (b.genre.l2 === genre.l2) - (a.genre.l2 === genre.l2))
+    .map((other) => other.saved);
+  return { genre, peers, others };
 }
 
 // Feedback from every game, newest first: only what the page shows (no player snapshot)
