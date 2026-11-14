@@ -31,6 +31,7 @@ function show(value, kind) {
   return String(value);
 }
 
+const shortDay = (day) => new Date(day * 86400 * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const robuxIcon = () => h('span', { class: 'bench-robux', 'aria-label': 'Robux' }, 'R$');
 const valueNode = (value, kind) => h('span', {}, kind === 'robux' && Number.isFinite(value) ? [robuxIcon(), ' '] : null, show(value, kind));
 
@@ -73,6 +74,7 @@ function infoButton(item, windowLabel) {
     if (item.FromRoblox?.Api) lines.push(`Roblox's own number for the same window, from its Analytics API (complete UTC days only, so it doesn't include today): ${show(item.FromRoblox.Value, item.Format)}.`);
     if (item.Small) lines.push('Small sample: a handful of players can move this a lot.');
   }
+  if (item.Scorecard) lines.push(`Roblox's own percentile for the game: ${ordinal(item.Scorecard.Percentile)} on ${shortDay(item.Scorecard.Day)}, its latest day${Number.isFinite(item.Scorecard.Value) ? ` (${show(item.Scorecard.Value, item.Format)} that day)` : ''}. The bar is the whole window, so it can differ.`);
   if (item.Benchmark) lines.push(`50th and 90th: ${item.Source?.Label || "Roblox's"}. Half are below ${show(item.Benchmark.P50, item.Format)}, and 1 in 10 is above ${show(item.Benchmark.P90, item.Format)}.`);
   if (item.Source?.Kind === 'genre') lines.push("Their average session is worked out from Roblox's public numbers: players online × time ÷ new visits. On our own games that runs about 8% high.");
   const text = lines.join(' ');
@@ -101,6 +103,10 @@ function benchCard(item, windowLabel, savedAt) {
       ? `Roblox's own: ${show(item.FromRoblox.Value, item.Format)}${rank}, complete days`
       : `Roblox showed ${show(item.FromRoblox.Value, item.Format)}${rank}${day ? ` on ${day}` : ''}`, item.Small ? ' · small sample' : '');
   } else if (item.Small) foot = h('p', { class: 'bench-foot' }, 'Small sample');
+  if (item.Scorecard) {
+    const roblox = h('span', { class: 'bench-scorecard', title: "Where Roblox itself places the game on this card, on its latest complete day" }, `Roblox: ${ordinal(item.Scorecard.Percentile)} on ${shortDay(item.Scorecard.Day)}`);
+    foot = foot ? h('p', { class: 'bench-foot' }, ...foot.childNodes, ' · ', roblox) : h('p', { class: 'bench-foot' }, roblox);
+  }
   const source = item.Source && item.Source.Kind !== 'roblox' ? h('p', { class: `bench-foot bench-source ${item.Source.Kind}` }, `50th / 90th: ${item.Source.Label}`) : null;
   return h('div', { class: 'bench-card' },
     h('div', { class: 'bench-head' },
@@ -215,9 +221,9 @@ export function benchmarksWidget(widget, ctx = {}) {
         h('h2', { class: 'bench-heading' }, 'Benchmarks based on ', h('span', { class: 'bench-basis-pill' }, widget.BasisLabel || 'Roblox-wide numbers')),
         h('p', { class: 'note' }, h('span', { class: 'dot ok' }), ' Live from the game\'s own stats, every minute. ',
           widget.RobloxAt ? `Roblox's own numbers read from Roblox hourly (last ${timeAgo(widget.RobloxAt)}). ` : '',
-          saved ? `Percentiles from Roblox, copied ${saved}; ` : '', 'each card says where its 50th and 90th come from.')),
+          widget.HubAt ? `Roblox's 50th and 90th read live from Creator Hub (${timeAgo(widget.HubAt)}).` : [saved ? `Percentiles from Roblox, copied ${saved}; ` : '', 'each card says where its 50th and 90th come from.'])),
       h('span', { class: 'spacer' }),
       picker,
-      ctx.owner && ctx.saveBenchmarks ? h('button', { class: 'button', type: 'button', onclick: () => editor(widget, ctx.saveBenchmarks) }, widget.RobloxAt ? (saved ? "Update Roblox's percentiles" : "Copy in Roblox's percentiles") : saved ? 'Update from Roblox' : 'Copy in from Roblox') : null),
+      ctx.owner && ctx.saveBenchmarks && !widget.HubAt ? h('button', { class: 'button', type: 'button', onclick: () => editor(widget, ctx.saveBenchmarks) }, widget.RobloxAt ? (saved ? "Update Roblox's percentiles" : "Copy in Roblox's percentiles") : saved ? 'Update from Roblox' : 'Copy in from Roblox') : null),
     grid);
 }

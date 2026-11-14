@@ -20,6 +20,8 @@
 // to check one against the other.
 //
 // The 50th and 90th percentiles: each card takes the best source there is (Source on the card says which):
+// 0. Roblox's own, read live from Creator Hub with the account cookie (audience.js), and with them Roblox's own
+//    percentile for the game on its latest day (Scorecard).
 // 1. Roblox's own, copied in by the owner (Roblox's peer group: experiences your players also play, else the
 //    genre, else all experiences; Roblox only shows them once a game has 100+ daily users).
 // 2. Average playtime only: measured live on the other games in the game's Roblox genre (peers.js), from
@@ -186,6 +188,12 @@ export function measure(metric, game, read, days, at = S.now()) {
 // context: { genre, peers: { [days]: peerSessions(...) }, others: [Roblox benchmarks saved for our other games
 // in the same Roblox genre] }
 function marksFor(metric, days, marks, context) {
+  // Roblox's own, read live from Creator Hub (audience.js): the best there is
+  const hub = context.hub?.windows?.[days]?.[metric.id];
+  if (hub && hub.p50 > 0 && hub.p90 > hub.p50) {
+    const peers = BASES[context.hub.type] ? `${BASES[context.hub.type]}${context.hub.type === 'genre' && context.hub.genre ? ` (${context.hub.genre})` : ''}` : 'similar experiences';
+    return { bench: { p50: hub.p50, p90: hub.p90 }, source: { kind: 'roblox', label: `Roblox's benchmark for this game, ${peers}, read live from Creator Hub` } };
+  }
   const own = marks[metric.id];
   if (own && own.p50 > 0 && own.p90 > own.p50) return { bench: own, source: { kind: 'roblox', label: "Roblox's benchmark for this game" } };
   if (metric.robloxOnly) return null;
@@ -208,7 +216,8 @@ function marksFor(metric, days, marks, context) {
 
 // The widget for one game's Overview. `saved`: the owner's copy of Roblox's numbers ({ basis, at, metrics });
 // `context`: see marksFor.
-// context.roblox: Roblox's analytics numbers (db.robloxMetrics)
+// context.roblox: Roblox's analytics numbers (db.robloxMetrics); context.hub: Roblox's benchmarks read live from
+// Creator Hub (db.hubBenchmarks), which beat every other source of 50th/90th
 export function benchmarksWidget(game, read, at = S.now(), saved = null, context = {}) {
   const stored = saved && typeof saved === 'object' ? saved : {};
   const marks = stored.metrics || {};
@@ -228,22 +237,27 @@ export function benchmarksWidget(game, read, at = S.now(), saved = null, context
       // Roblox's own number for this window, from its Analytics API (analytics.js); else the one copied in
       const api = context.roblox?.windows?.[days]?.[metric.id];
       const fromRoblox = Number.isFinite(api) ? { Value: api, Percentile: place(api), Api: true, At: context.roblox.at } : copied;
+      // Where Roblox itself places the game, on its latest day (Creator Hub's scorecard)
+      const card = context.hub?.scorecards?.[metric.id];
+      const scorecard = card && Number.isFinite(card.percentile) ? { Percentile: card.percentile, Value: card.value, Day: card.day } : null;
       if (metric.robloxOnly) {
-        return { Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: false, Value: fromRoblox?.Value ?? null, Prev: null, Percentile: fromRoblox?.Percentile ?? null, Benchmark: benchmark, Source: source, FromRoblox: fromRoblox, Copied: copied };
+        return { Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: false, Value: fromRoblox?.Value ?? null, Prev: null, Percentile: fromRoblox?.Percentile ?? null, Benchmark: benchmark, Source: source, FromRoblox: fromRoblox, Copied: copied, Scorecard: scorecard };
       }
       const result = measure(metric, game, read, days, at);
       return {
         Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: true,
         Value: result.value, Prev: result.prev, Roblox: result.roblox, Size: result.size, Small: result.size < (SMALL[metric.id] || 0),
-        Percentile: place(result.value), Benchmark: benchmark, Source: source, FromRoblox: fromRoblox, Copied: copied,
+        Percentile: place(result.value), Benchmark: benchmark, Source: source, FromRoblox: fromRoblox, Copied: copied, Scorecard: scorecard,
       };
     });
   }
   const genre = context.genre?.l1 && context.genre?.l2 ? `${context.genre.l1} → ${context.genre.l2}` : null;
+  const hub = context.hub && Object.keys(context.hub.windows?.[7] || {}).length ? context.hub : null;
+  const hubLabel = hub && BASES[hub.type] ? `${BASES[hub.type]}${hub.type === 'genre' && hub.genre ? ` (${hub.genre})` : ''}` : null;
   return {
-    Type: 'Benchmarks', Game: game.id, Basis: BASES[stored.basis] ? stored.basis : null,
-    BasisLabel: BASES[stored.basis] || (genre ? `your genre, ${genre}` : null), Genre: genre, SavedAt: stored.at || null, Windows: windows,
-    RobloxAt: context.roblox?.at || null,
+    Type: 'Benchmarks', Game: game.id, Basis: hub && BASES[hub.type] ? hub.type : BASES[stored.basis] ? stored.basis : null,
+    BasisLabel: hubLabel || BASES[stored.basis] || (genre ? `your genre, ${genre}` : null), Genre: genre, SavedAt: stored.at || null, Windows: windows,
+    RobloxAt: context.roblox?.at || null, HubAt: hub ? hub.at : null,
   };
 }
 

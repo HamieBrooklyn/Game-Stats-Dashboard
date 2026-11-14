@@ -119,7 +119,7 @@ export function buildViews(games, db, at = S.now()) {
       const now = salesNow(game, read, at);
       const gameFeed = feed.filter((sale) => sale.game === game.id);
       // Roblox's benchmark cards, counted live (the same in every range: they have their own 7/30-day windows)
-      const benchmarks = benchmarksWidget(game, read, at, db.benchmarks ? db.benchmarks(game.id) : null, { ...benchmarkContext(game, games, db, at), roblox: db.robloxMetrics ? db.robloxMetrics(game.id) : null });
+      const benchmarks = benchmarksWidget(game, read, at, db.benchmarks ? db.benchmarks(game.id) : null, { ...benchmarkContext(game, games, db, at), roblox: db.robloxMetrics ? db.robloxMetrics(game.id) : null, hub: db.hubBenchmarks ? db.hubBenchmarks(game.id) : null });
       // Roblox's highly engaged players (the big counter) first, the game's milestones last (milestones.js)
       const engaged = db.engagedHistory ? engagedWidget(game, db) : null;
       const milestones = db.milestones ? milestonesWidget(game, db) : null;

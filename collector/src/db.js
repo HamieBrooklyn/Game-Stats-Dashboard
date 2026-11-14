@@ -66,6 +66,8 @@ export function openDatabase(file) {
     CREATE TABLE IF NOT EXISTS roblox_metrics (game TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
     -- Creator Hub's audience reach per game, live (audience.js; JSON): highly engaged players, goal, status
     CREATE TABLE IF NOT EXISTS audience_reach (game TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+    -- Roblox's benchmark percentiles and its own percentile per game, live from Creator Hub (audience.js; JSON)
+    CREATE TABLE IF NOT EXISTS hub_benchmarks (game TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
   `);
 
   const statements = {
@@ -127,6 +129,9 @@ export function openDatabase(file) {
       ON CONFLICT (game) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
     audienceReach: db.prepare('SELECT value, updated_at FROM audience_reach WHERE game = ?'),
     putAudienceReach: db.prepare(`INSERT INTO audience_reach (game, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT (game) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
+    hubBenchmarks: db.prepare('SELECT value, updated_at FROM hub_benchmarks WHERE game = ?'),
+    putHubBenchmarks: db.prepare(`INSERT INTO hub_benchmarks (game, value, updated_at) VALUES (?, ?, ?)
       ON CONFLICT (game) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
     lastDiscovery: db.prepare('SELECT max(found_at) AS at FROM peers WHERE own = 0'),
   };
@@ -312,6 +317,14 @@ export function openDatabase(file) {
     },
     putAudienceReach(game, value, at) {
       statements.putAudienceReach.run(game, JSON.stringify(value), at);
+    },
+    // Roblox's benchmarks from Creator Hub (audience.js): { type, genre, windows, scorecards, at } or null
+    hubBenchmarks(game) {
+      const row = statements.hubBenchmarks.get(game);
+      return row ? { ...JSON.parse(row.value), at: row.updated_at } : null;
+    },
+    putHubBenchmarks(game, value, at) {
+      statements.putHubBenchmarks.run(game, JSON.stringify(value), at);
     },
     // When genre games were last found (0 if never)
     lastDiscovery() {
