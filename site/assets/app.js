@@ -301,7 +301,15 @@ async function gamePage(tab, withRange, quiet, token) {
     h('strong', {}, data.game.name), statusBadge(data.status),
     data.status.state !== 'ok' ? h('span', { class: 'note' }, data.status.detail) : null);
   const body = h('div', { style: 'display:grid;gap:16px' });
-  renderWidgets(data.widgets, body);
+  renderWidgets(data.widgets, body, {
+    owner: me?.role === 'owner',
+    // Roblox's benchmarks, copied in by the owner: saved, then the page again with them
+    saveBenchmarks: async (benchmarks) => {
+      await apiPost('/v1/admin/benchmarks', benchmarks);
+      for (const key of [...cache.keys()]) if (key.startsWith(`/v1/games/${encodeURIComponent(benchmarks.game)}/overview`)) cache.delete(key);
+      render({ quiet: true });
+    },
+  });
   show(head, body);
 }
 

@@ -1,10 +1,12 @@
 // Draws the panel's widget JSON (the collector builds the same widgets the in-game panel shows): Tiles, Line,
-// Bars, Columns, Funnel, Table, Text and Section, plus the Monetization page's own (money.js). Unknown types are
+// Bars, Columns, Funnel, Table, Text and Section, plus the Monetization page's own (money.js) and Roblox's
+// benchmark cards (benchmarks.js). Unknown types are
 // skipped.
 
 import { format, change, h } from './format.js';
 import { lineChart, sparkline, dataTable } from './charts.js';
 import { moneyWidgets } from './money.js';
+import { benchmarksWidget } from './benchmarks.js';
 
 function card(title, ...children) {
   return h('section', { class: 'card' }, title ? h('h3', { class: 'card-title' }, title) : null, ...children);
@@ -198,15 +200,16 @@ const Draw = {
   },
 };
 
-Object.assign(Draw, moneyWidgets);
+Object.assign(Draw, moneyWidgets, { Benchmarks: benchmarksWidget });
 
-export function renderWidgets(widgets, container) {
+// ctx: what some widgets need from the page (Benchmarks: { owner, saveBenchmarks })
+export function renderWidgets(widgets, container, ctx = {}) {
   const nodes = [];
   for (const widget of widgets || []) {
     const draw = Draw[widget.Type];
     if (!draw) continue;
     try {
-      const node = draw(widget);
+      const node = draw(widget, ctx);
       if (node) nodes.push(node);
     } catch (error) {
       console.warn('widget failed', widget.Type, error);

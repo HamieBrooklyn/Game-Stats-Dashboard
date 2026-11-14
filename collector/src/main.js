@@ -113,8 +113,17 @@ export function main() {
     }
     return scoped.get(key);
   });
+  // The owner's copy of Roblox's benchmarks: saved, then every view rebuilt at once so the page shows it
+  const saveBenchmarks = (gameId, value) => {
+    db.putBenchmarks(gameId, value, S.now());
+    views = buildViews(games, db);
+    scoped = new Map();
+    lastBuild = S.now();
+  };
   const server = createServer({
     auth,
+    games,
+    saveBenchmarks,
     allowedOrigins: process.env.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
     siteDir: path.resolve(ROOT, '..', 'site'),
     getView,

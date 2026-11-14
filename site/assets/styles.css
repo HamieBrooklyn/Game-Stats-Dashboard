@@ -414,3 +414,55 @@ dialog .button { height: 40px; justify-content: center; }
   .sale { grid-template-columns: 8px minmax(0, 1fr) auto; }
   .sale-time { grid-column: 2 / 4; text-align: left; margin-top: -4px; }
 }
+
+/* Benchmarks: Roblox's cards (Analytics → Overview), live. The bar is 0-50th, 50th-90th, 90th-100th. */
+:root { --bench-track: #e4e4e7; --bench-chip: #f4f4f5; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { --bench-track: rgb(255 255 255 / 16%); --bench-chip: rgb(255 255 255 / 9%); } }
+:root[data-theme="dark"] { --bench-track: rgb(255 255 255 / 16%); --bench-chip: rgb(255 255 255 / 9%); }
+.bench { padding: 18px 20px 20px; }
+.bench-top { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.bench-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 17px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+.bench-basis-pill { font-size: 12px; font-weight: 500; padding: 5px 12px; border-radius: 999px; background: var(--accent); border: 1px solid var(--border); }
+.bench-top .note .dot { display: inline-block; vertical-align: 1px; width: 7px; height: 7px; }
+.bench-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.bench-card { position: relative; border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px 14px; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 4px; }
+.bench-head { display: flex; align-items: flex-start; gap: 8px; }
+.bench-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bench-info { flex: none; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid currentColor; background: none; color: var(--muted-foreground); font: 600 11px/1 Georgia, serif; font-style: normal; cursor: pointer; padding: 0; display: inline-grid; place-items: center; }
+.bench-info:hover, .bench-info[aria-expanded="true"] { color: var(--foreground); }
+.bench-pop { position: absolute; z-index: 5; top: 40px; left: 12px; right: 12px; background: var(--card); border: 1px solid var(--input); border-radius: 8px; padding: 10px 12px; box-shadow: 0 12px 32px -12px rgb(0 0 0 / 40%); font-size: 12px; line-height: 1.45; }
+.bench-pop p { margin: 0 0 6px; }
+.bench-pop p:last-child { margin: 0; }
+.bench-value { display: flex; align-items: center; gap: 8px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.bench-robux { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; border: 2px solid currentColor; font-size: 8px; font-weight: 800; vertical-align: 3px; letter-spacing: 0; }
+.bench-change { font-size: 12px; font-weight: 500; padding: 2px 6px; border-radius: 4px; background: var(--bench-chip); color: var(--muted-foreground); white-space: nowrap; }
+.bench-change.up { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); }
+.bench-tag { font-size: 11px; font-weight: 500; padding: 2px 6px; border-radius: 4px; background: var(--bench-chip); color: var(--muted-foreground); }
+.bench-bar { margin-top: 30px; }
+.bench-track { display: flex; gap: 6px; height: 10px; }
+.bench-seg { position: relative; flex-basis: 0; background: var(--bench-track); border-radius: 999px; }
+.bench-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; }
+.bench-knob { position: absolute; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: #d4d4d8; border: 2px solid #52525b; box-shadow: 0 1px 2px rgb(0 0 0 / 30%); }
+.bench-rank { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.bench-marks { position: relative; height: 46px; margin-top: 10px; }
+.bench-marks.empty { height: auto; font-size: 12px; color: var(--muted-foreground); }
+.bench-mark { position: absolute; top: 0; transform: translateX(-50%); display: grid; justify-items: center; padding: 4px 8px; border-radius: 6px; background: var(--bench-chip); font-size: 12px; font-weight: 600; line-height: 1.35; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bench-mark b { font-weight: 600; color: var(--muted-foreground); }
+.bench-mark.end { right: 0; transform: none; }
+.bench-bar.none .bench-seg { opacity: 0.6; }
+.bench-foot { margin: 6px 0 0; font-size: 11px; color: var(--muted-foreground); }
+.bench-dialog { width: min(720px, calc(100vw - 32px)); }
+.bench-dialog form { gap: 10px; }
+.bench-steps { margin: 0; padding-left: 18px; line-height: 1.5; }
+.bench-paste { height: auto; min-height: 64px; padding: 8px 10px; font: inherit; font-size: 12px; resize: vertical; }
+.bench-basis { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted-foreground); }
+.bench-table td { padding: 4px 6px; }
+.bench-table .input { height: 32px; width: 88px; font-variant-numeric: tabular-nums; }
+.bench-table th[scope="row"] { color: var(--foreground); white-space: normal; min-width: 150px; }
+.bench-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.bench-actions .button { height: 36px; }
+@media (max-width: 760px) {
+  .bench { padding: 14px; }
+  .bench-grid { grid-template-columns: 1fr; }
+  .bench-table .input { height: 40px; width: 72px; }
+}

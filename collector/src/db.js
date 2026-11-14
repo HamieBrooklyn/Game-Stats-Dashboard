@@ -41,6 +41,9 @@ export function openDatabase(file) {
       id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT NOT NULL UNIQUE, role TEXT NOT NULL, note TEXT,
       created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_by TEXT, used_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0
     );
+    -- Roblox's benchmarks (50th/90th percentiles and Roblox's own numbers) the owner copied in, per game (JSON;
+    -- benchmarks.js). Only Roblox can count them, so they can't be read back from anywhere: backed up with the rest.
+    CREATE TABLE IF NOT EXISTS benchmarks (game TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
   `);
 
   const statements = {
@@ -74,6 +77,9 @@ export function openDatabase(file) {
     useInvite: db.prepare('UPDATE invites SET used_by = ?, used_at = ? WHERE id = ? AND used_by IS NULL AND revoked = 0'),
     revokeInvite: db.prepare('UPDATE invites SET revoked = 1 WHERE id = ? AND used_by IS NULL'),
     invites: db.prepare('SELECT id, role, note, created_at, expires_at, used_by, used_at, revoked FROM invites ORDER BY id DESC LIMIT 200'),
+    benchmarks: db.prepare('SELECT value, updated_at FROM benchmarks WHERE game = ?'),
+    putBenchmarks: db.prepare(`INSERT INTO benchmarks (game, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT (game) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
   };
   const memberOf = (row) => row && { id: row.user_id, username: row.username, displayName: row.display_name, role: row.role, games: JSON.parse(row.games), createdAt: row.created_at, lastLogin: row.last_login };
 
@@ -164,6 +170,14 @@ export function openDatabase(file) {
     },
     invites() {
       return statements.invites.all();
+    },
+    // { basis, metrics, at } or null
+    benchmarks(game) {
+      const row = statements.benchmarks.get(game);
+      return row ? { ...JSON.parse(row.value), at: row.updated_at } : null;
+    },
+    putBenchmarks(game, value, at) {
+      statements.putBenchmarks.run(game, JSON.stringify(value), at);
     },
     transaction(fn) {
       db.exec('BEGIN IMMEDIATE');

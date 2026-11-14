@@ -1,6 +1,6 @@
 // Builds every view the dashboard asks for from the cache, after each poll, so requests only serve ready JSON
-// (with an ETag). Per game: Overview, Funnels, Monetization and Live (the panel's math, query.js / funnels.js, with
-// money.js on top). All games:
+// (with an ETag). Per game: Overview (with Roblox's benchmark cards, benchmarks.js), Funnels, Monetization and Live
+// (the panel's math, query.js / funnels.js, with money.js on top). All games:
 // totals added up the right way (sums of counts, never averages of percentages), each game's status, and
 // players online over 24 hours from the collector's own 15 s samples.
 
@@ -9,6 +9,7 @@ import * as S from './stats.js';
 import { overviewTab, liveTab, funnelsTab, moneyTab, funnelDefsOf, ratio } from './query.js';
 import { presentFunnels } from './present.js';
 import { itemHistory, adviseItems, salesNow, presentMoney, moneyTotals, moneyAll } from './money.js';
+import { benchmarksWidget } from './benchmarks.js';
 
 const RANGE_IDS = Object.keys(S.RANGES);
 const SAMPLE_BIN = 300; // the online line's bins: 5 minutes
@@ -115,10 +116,13 @@ export function buildViews(games, db, at = S.now()) {
       const advice = adviseItems(history);
       const now = salesNow(game, read, at);
       const gameFeed = feed.filter((sale) => sale.game === game.id);
+      // Roblox's benchmark cards, counted live (the same in every range: they have their own 7/30-day windows)
+      const benchmarks = benchmarksWidget(game, read, at, db.benchmarks ? db.benchmarks(game.id) : null);
       for (const rangeId of RANGE_IDS) {
         const overview = overviews[rangeId];
         allTotals[rangeId].push({ game, totals: overview.totals, status });
-        views.set(`/v1/games/${game.id}/overview?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: overview.widgets }));
+        const [overviewTiles, ...overviewRest] = overview.widgets;
+        views.set(`/v1/games/${game.id}/overview?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: [overviewTiles, benchmarks, ...overviewRest] }));
         const funnels = presentFunnels(funnelsTab(game, read, rangeId, at).widgets, {
           funnels: funnelDefsOf(read(S.DEFS_KEY)),
           notes: game.funnelNotes || {},

@@ -22,6 +22,7 @@ Browser: https://stats.pokepon.org ── sign in with Roblox (invite only), see
 ## Pages
 
 - **Overview**: all games (playing now, players, new, sessions, Robux, conversion, D1, players online over 24 h, every game's status) or one game (the panel's Overview tab).
+  On one game, **Benchmarks** are Roblox's six cards (Creator Hub → Analytics → Overview), counted live instead of once a day: see below.
 - **Funnels**: one game's funnels (each player once per step), where players stop and quit, recent sessions.
 - **Monetization**: one game or all of them.
   - **Sales right now:** this hour, the hour before, today and yesterday, plus a feed of the latest sales (about 1–2 minutes behind: servers merge every minute and the collector reads every minute).
@@ -39,6 +40,23 @@ Browser: https://stats.pokepon.org ── sign in with Roblox (invite only), see
 
   "Clearly" means beyond a 90% interval, so a few lucky sales don't count. An item's price is what its sales cost (Robux ÷ purchases per day), so price changes are found without any setup. Rates and most suggestions need the game to report prompts (`Stats.prompt`) as well as purchases.
 - **Live**: players online and servers, every 15 seconds.
+
+## Benchmarks (Roblox's, live)
+
+The game's Overview shows Roblox's Benchmarks cards. The value on each is counted here from the game's own stats, every minute, with Roblox's definitions; where it stands is placed on Roblox's own 50th and 90th percentiles:
+
+| Card | Roblox's definition | Counted here as |
+| --- | --- | --- |
+| Average playtime | Average session time: time in the game ÷ sessions | length of the sessions that ended ÷ how many ended |
+| Day 1 / Day 7 retention | New players of a day who played again 1 / 7 days later | the day cohorts; only days whose day 1 / day 7 is over |
+| Payer conversion rate | Share of daily active users who paid | paying players ÷ players, each once a day |
+| ARPPU | Revenue per paying user per day | Robux spent × 70% (what you earn) ÷ paying players |
+| Play-through rate | Plays per home-recommendation impression | not countable (only Roblox has impressions): Roblox's own number |
+
+- **Live:** the window (7 or 30 days, like Roblox's) ends now, today so far included, and is pooled (all tops ÷ all bottoms), so a quiet day can't swing it. Roblox averages complete days instead; that number is in each card's ⓘ, to compare.
+- **The 50th and 90th:** only Roblox can count them (its peer group is experiences your players also play, then your genre, then all experiences; refreshed daily). The owner copies them in: **Copy in from Roblox** on the Overview, then paste Roblox's whole Benchmarks section (or type them in). They move slowly, so every week or two is plenty.
+- **The percentile:** a log-normal spread through Roblox's two marks (and through Roblox's own value at its own percentile, if copied in), rounded down like Roblox. On a real Roblox section that lands within 10 points of Roblox's on 5 of 6 cards; with Roblox's own point copied in, it's exact there.
+- Days are UTC. If Roblox's numbers differ from these, the usual reasons: a different day boundary, Roblox counting sessions or purchases the game's stats don't see, and Roblox's daily averaging.
 - **Feedback**: every game's feedback, newest first, filter by game, sentiment, status or text.
 
 ## Set up on the Mac (once)
