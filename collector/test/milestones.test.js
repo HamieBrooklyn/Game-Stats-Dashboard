@@ -80,6 +80,7 @@ test('milestones: highly engaged players, copied in, with the big goal at 250', 
   assert.equal(entry.Goal, 250);
   assert.deepEqual(entry.History.map((row) => row.Count), [140, 251]);
   assert.equal(reachedOf([GAME], db)[0].Level, 'epic');
+  assert.equal(reachedOf([GAME], db).find((item) => item.Value === 100).Level, 'small', 'with a goal of 250, 100 is no party');
   assert.deepEqual(cleanEngaged({ game: 'g1', count: '1,234' }, [GAME]), { game: 'g1', count: 1234 });
   assert.throws(() => cleanEngaged({ game: 'g1', count: '12.5' }, [GAME]));
   assert.throws(() => cleanEngaged({ game: 'nope', count: 3 }, [GAME]));

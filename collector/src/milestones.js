@@ -43,13 +43,14 @@ export const KINDS = {
   },
   engaged: {
     label: 'Highly engaged players',
+    // Steps up to the game's goal, which is Roblox's own when Creator Hub is read (goalOf): only the goal gets
+    // fireworks, wherever Roblox puts it
     steps: [25, 50, 100, 150, 200, ENGAGED_GOAL],
-    title: (value) => (value === ENGAGED_GOAL ? `${ENGAGED_GOAL} highly engaged players!` : `${value} highly engaged players`),
-    detail: (value) => (value === ENGAGED_GOAL
-      ? "Roblox's Kids and Select evaluation goal: 250 unique plays by highly engaged players in 60 days."
-      : `${ENGAGED_GOAL - value} more to Roblox's goal of ${ENGAGED_GOAL}.`),
-    // 100: Roblox is lowering the goal from 250 to 100 (DevForum, Oct 2026), so both get fireworks
-    level: (value) => (value === ENGAGED_GOAL || value === 100 ? 'epic' : value >= 100 ? 'big' : 'small'),
+    title: (value, goal = ENGAGED_GOAL) => (value === goal ? `${value} highly engaged players!` : `${value} highly engaged players`),
+    detail: (value, goal = ENGAGED_GOAL) => (value === goal
+      ? `Roblox's Kids and Select evaluation goal: ${goal} unique plays by highly engaged players in 60 days.`
+      : value < goal ? `${goal - value} more to Roblox's goal of ${goal}.` : `Past Roblox's goal of ${goal}.`),
+    level: (value, goal = ENGAGED_GOAL) => (value === goal ? 'epic' : value >= goal / 2 ? 'big' : 'small'),
   },
   players: {
     label: 'Players',
@@ -67,6 +68,18 @@ export const KINDS = {
   },
 };
 const ORDER = Object.keys(KINDS);
+
+// A game's highly engaged goal: Roblox's own (read live from Creator Hub, audience.js), else 250
+export function goalOf(game, db) {
+  const goal = db.audienceReach ? db.audienceReach(game.id)?.goal : null;
+  return goal > 0 ? goal : ENGAGED_GOAL;
+}
+
+// A kind's steps for a game: the engaged ones stop at the game's goal (which is always a step)
+function stepsOf(kind, goal) {
+  if (kind !== 'engaged') return KINDS[kind].steps;
+  return [...new Set([...KINDS.engaged.steps.filter((value) => value < goal), goal])].sort((a, b) => a - b);
+}
 export const START = '$start'; // saved at a game's first check
 
 // A game's all-time numbers: sums over every day bucket the collector has (new players are each counted on
@@ -97,9 +110,10 @@ export function trackMilestones(games, db, at = S.now(), isReady = () => true) {
     const reached = new Set(db.milestones(game.id).map((row) => row.id));
     const first = !reached.has(START);
     const values = gameValues(game, db);
+    const goal = goalOf(game, db);
     const fresh = [];
     for (const kind of ORDER) {
-      for (const value of KINDS[kind].steps) {
+      for (const value of stepsOf(kind, goal)) {
         if (values[kind] >= value && !reached.has(milestoneId(kind, value))) fresh.push({ kind, value });
       }
     }
@@ -120,13 +134,13 @@ export function trackMilestones(games, db, at = S.now(), isReady = () => true) {
 }
 
 // One reached milestone, as the site shows it
-export function presentMilestone(row, game) {
+export function presentMilestone(row, game, goal = ENGAGED_GOAL) {
   const kind = KINDS[row.kind];
   return {
     Key: `${row.game}:${row.id}:${row.at}`,
     Game: row.game, GameName: game?.name || row.game, Slot: game?.slot || 1,
     Kind: row.kind, Value: row.value, At: row.at, Quiet: row.quiet,
-    Title: kind.title(row.value), Detail: kind.detail(row.value), Level: kind.level(row.value),
+    Title: kind.title(row.value, goal), Detail: kind.detail(row.value, goal), Level: kind.level(row.value, goal),
   };
 }
 
@@ -136,17 +150,18 @@ export function reachedOf(games, db) {
   return games
     .flatMap((game) => db.milestones(game.id))
     .filter((row) => row.id !== START && KINDS[row.kind] && byId[row.game])
-    .map((row) => presentMilestone(row, byId[row.game]))
+    .map((row) => presentMilestone(row, byId[row.game], goalOf(byId[row.game], db)))
     .sort((a, b) => b.At - a.At || b.Value - a.Value);
 }
 
 // A game's card: what it reached, and the next step of every kind with how far along it is
 export function milestonesWidget(game, db) {
   const values = gameValues(game, db);
+  const goal = goalOf(game, db);
   const next = ORDER.map((kind) => {
-    const step = KINDS[kind].steps.find((value) => values[kind] < value);
+    const step = stepsOf(kind, goal).find((value) => values[kind] < value);
     if (step === undefined) return null;
-    return { Kind: kind, Label: KINDS[kind].label, Value: step, Title: KINDS[kind].title(step), Current: values[kind], Level: KINDS[kind].level(step) };
+    return { Kind: kind, Label: KINDS[kind].label, Value: step, Title: KINDS[kind].title(step, goal), Current: values[kind], Level: KINDS[kind].level(step, goal) };
   }).filter(Boolean);
   return { Type: 'Milestones', Game: game.id, Reached: reachedOf([game], db), Next: next };
 }
