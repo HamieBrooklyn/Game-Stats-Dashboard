@@ -2,7 +2,7 @@
 // from the game's own stats (benchmarks.js there says how), the 50th and 90th percentiles are Roblox's, copied in
 // by the owner. The bar is Roblox's: 0-50th, 50th-90th and 90th-100th, the game's percentile marked on it.
 
-import { h, abbreviate } from './format.js';
+import { h, abbreviate, timeAgo } from './format.js';
 import { parseRobloxBenchmarks, toStored, toShown, UNITS } from './benchparse.js';
 
 const WINDOW_LABELS = { 7: '7 day average', 30: '30 day average' };
@@ -70,6 +70,7 @@ function infoButton(item, windowLabel) {
   if (item.Live) {
     lines.push(`Live: the ${windowLabel.replace(' average', '')}s up to now (UTC), today so far included, pooled over the days.`);
     if (Number.isFinite(item.Roblox)) lines.push(`Averaged the way Roblox does (the mean of each complete day): ${show(item.Roblox, item.Format)}.`);
+    if (item.FromRoblox?.Api) lines.push(`Roblox's own number for the same window, from its Analytics API (complete UTC days only, so it doesn't include today): ${show(item.FromRoblox.Value, item.Format)}.`);
     if (item.Small) lines.push('Small sample: a handful of players can move this a lot.');
   }
   if (item.Benchmark) lines.push(`50th and 90th: ${item.Source?.Label || "Roblox's"}. Half are below ${show(item.Benchmark.P50, item.Format)}, and 1 in 10 is above ${show(item.Benchmark.P90, item.Format)}.`);
@@ -89,10 +90,16 @@ function infoButton(item, windowLabel) {
 function benchCard(item, windowLabel, savedAt) {
   const day = savedAt ? new Date(savedAt * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : null;
   let foot = null;
+  const api = item.FromRoblox?.Api;
   if (!item.Live) {
-    foot = h('p', { class: 'bench-foot' }, item.FromRoblox ? `Roblox's own number${day ? `, copied ${day}` : ''}: only Roblox counts impressions.` : "Only Roblox can count this (it needs your home-page impressions). Copy Roblox's card in to see it here.");
+    foot = h('p', { class: 'bench-foot' }, item.FromRoblox
+      ? (api ? "Roblox's own number, read from Roblox every hour: only Roblox counts impressions." : `Roblox's own number${day ? `, copied ${day}` : ''}: only Roblox counts impressions.`)
+      : "Only Roblox can count this (it needs your home-page impressions). Roblox hasn't reported it for this window yet.");
   } else if (item.FromRoblox && Number.isFinite(item.FromRoblox.Value)) {
-    foot = h('p', { class: 'bench-foot' }, `Roblox showed ${show(item.FromRoblox.Value, item.Format)}${Number.isFinite(item.FromRoblox.Percentile) ? ` (${ordinal(item.FromRoblox.Percentile)})` : ''}${day ? ` on ${day}` : ''}`, item.Small ? ' · small sample' : '');
+    const rank = Number.isFinite(item.FromRoblox.Percentile) ? ` (${ordinal(item.FromRoblox.Percentile)})` : '';
+    foot = h('p', { class: 'bench-foot' }, api
+      ? `Roblox's own: ${show(item.FromRoblox.Value, item.Format)}${rank}, complete days`
+      : `Roblox showed ${show(item.FromRoblox.Value, item.Format)}${rank}${day ? ` on ${day}` : ''}`, item.Small ? ' · small sample' : '');
   } else if (item.Small) foot = h('p', { class: 'bench-foot' }, 'Small sample');
   const source = item.Source && item.Source.Kind !== 'roblox' ? h('p', { class: `bench-foot bench-source ${item.Source.Kind}` }, `50th / 90th: ${item.Source.Label}`) : null;
   return h('div', { class: 'bench-card' },
@@ -115,7 +122,9 @@ function editor(widget, save) {
   const rows = latest.map((item) => {
     // Only Roblox's own marks for this game (not the genre's or another game's, which would be saved as Roblox's)
     const own = item.Source?.Kind === 'roblox' ? item.Benchmark : null;
-    const saved = { p50: own?.P50, p90: own?.P90, value: item.FromRoblox?.Value, pct: item.FromRoblox?.Percentile };
+    // Only what was copied in (Roblox's numbers read from its API aren't saved as copies)
+    const copied = item.Copied === undefined ? item.FromRoblox : item.Copied;
+    const saved = { p50: own?.P50, p90: own?.P90, value: copied?.Value, pct: copied?.Percentile };
     const unit = UNITS[item.Id];
     return h('tr', {},
       h('th', { scope: 'row' }, item.Title, h('span', { class: 'muted' }, ` (${unit})`)),
@@ -172,7 +181,9 @@ function editor(widget, save) {
     h('div', { class: 'table-wrap' }, h('table', { class: 'bench-table' },
       h('thead', {}, h('tr', {}, ['Card', "Roblox's value", 'Its percentile', '50th', '90th'].map((name) => h('th', {}, name)))),
       h('tbody', {}, rows))),
-    h('p', { class: 'note' }, "Roblox refreshes these daily, but they move slowly: copying them in every week or two is plenty. Roblox's own value and percentile are optional; with them, the bar matches Roblox's exactly at that value."),
+    h('p', { class: 'note' }, widget.RobloxAt
+      ? "Roblox's own values are read from Roblox every hour, so only the 50th and 90th are needed here (Roblox's API doesn't have them). They move slowly: every week or two is plenty. A value and percentile typed in make the bar match Roblox's exactly at that value."
+      : "Roblox refreshes these daily, but they move slowly: copying them in every week or two is plenty. Roblox's own value and percentile are optional; with them, the bar matches Roblox's exactly at that value."),
     error,
     h('div', { class: 'bench-actions' }, h('button', { class: 'button', type: 'button', onclick: () => dialog.close() }, 'Cancel'), saveButton));
   dialog.append(h('h2', { id: 'bench-dialog-title' }, "Roblox's benchmarks"), form);
@@ -203,9 +214,10 @@ export function benchmarksWidget(widget, ctx = {}) {
       h('div', {},
         h('h2', { class: 'bench-heading' }, 'Benchmarks based on ', h('span', { class: 'bench-basis-pill' }, widget.BasisLabel || 'Roblox-wide numbers')),
         h('p', { class: 'note' }, h('span', { class: 'dot ok' }), ' Live from the game\'s own stats, every minute. ',
+          widget.RobloxAt ? `Roblox's own numbers read from Roblox hourly (last ${timeAgo(widget.RobloxAt)}). ` : '',
           saved ? `Percentiles from Roblox, copied ${saved}; ` : '', 'each card says where its 50th and 90th come from.')),
       h('span', { class: 'spacer' }),
       picker,
-      ctx.owner && ctx.saveBenchmarks ? h('button', { class: 'button', type: 'button', onclick: () => editor(widget, ctx.saveBenchmarks) }, saved ? 'Update from Roblox' : 'Copy in from Roblox') : null),
+      ctx.owner && ctx.saveBenchmarks ? h('button', { class: 'button', type: 'button', onclick: () => editor(widget, ctx.saveBenchmarks) }, widget.RobloxAt ? (saved ? "Update Roblox's percentiles" : "Copy in Roblox's percentiles") : saved ? 'Update from Roblox' : 'Copy in from Roblox') : null),
     grid);
 }

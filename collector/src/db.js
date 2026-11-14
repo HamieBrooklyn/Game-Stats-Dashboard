@@ -62,6 +62,8 @@ export function openDatabase(file) {
     );
     CREATE TABLE IF NOT EXISTS engaged (game TEXT NOT NULL, t INTEGER NOT NULL, count INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS engaged_game_t ON engaged (game, t);
+    -- Roblox's own analytics numbers per game, read hourly (analytics.js; JSON)
+    CREATE TABLE IF NOT EXISTS roblox_metrics (game TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
   `);
 
   const statements = {
@@ -118,6 +120,9 @@ export function openDatabase(file) {
     addMilestone: db.prepare('INSERT OR IGNORE INTO milestones (game, id, kind, value, at, quiet) VALUES (?, ?, ?, ?, ?, ?)'),
     addEngaged: db.prepare('INSERT INTO engaged (game, t, count) VALUES (?, ?, ?)'),
     engagedHistory: db.prepare('SELECT t, count FROM engaged WHERE game = ? ORDER BY t, rowid'),
+    robloxMetrics: db.prepare('SELECT value, updated_at FROM roblox_metrics WHERE game = ?'),
+    putRobloxMetrics: db.prepare(`INSERT INTO roblox_metrics (game, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT (game) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`),
     lastDiscovery: db.prepare('SELECT max(found_at) AS at FROM peers WHERE own = 0'),
   };
   const memberOf = (row) => row && { id: row.user_id, username: row.username, displayName: row.display_name, role: row.role, games: JSON.parse(row.games), createdAt: row.created_at, lastLogin: row.last_login };
@@ -286,6 +291,14 @@ export function openDatabase(file) {
     },
     addEngaged(game, count, t) {
       statements.addEngaged.run(game, t, count);
+    },
+    // Roblox's analytics numbers (analytics.js): { windows, engagedHigh, through, at } or null
+    robloxMetrics(game) {
+      const row = statements.robloxMetrics.get(game);
+      return row ? { ...JSON.parse(row.value), at: row.updated_at } : null;
+    },
+    putRobloxMetrics(game, value, at) {
+      statements.putRobloxMetrics.run(game, JSON.stringify(value), at);
     },
     // When genre games were last found (0 if never)
     lastDiscovery() {

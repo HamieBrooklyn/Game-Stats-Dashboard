@@ -12,6 +12,7 @@ import { buildViews, gameStatus, viewGate } from './views.js';
 import { createServer } from './server.js';
 import { createAuth } from './auth.js';
 import { trackMilestones } from './milestones.js';
+import { createAnalytics, createAnalyticsClient } from './analytics.js';
 import * as S from './stats.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -102,6 +103,8 @@ export function main() {
   const poller = createPoller({ games, client, db, log, onChange: rebuild });
   // Other games in our games' Roblox genres, from Roblox's public data (the genre benchmark for playtime)
   const peers = createPeers({ games, db, log, onChange: rebuild });
+  // Roblox's own analytics numbers (the benchmark cards' values, "High" engagement players), hourly
+  const analytics = createAnalytics({ games, db, log, onChange: rebuild, client: createAnalyticsClient(process.env.ROBLOX_OPEN_CLOUD_API_KEY) });
 
   function health() {
     const at = S.now();
@@ -162,6 +165,7 @@ export function main() {
 
   poller.start();
   peers.start();
+  analytics.start();
   checkMilestones();
   views = buildViews(games, db);
 
@@ -186,6 +190,7 @@ export function main() {
     log(`${signal}: stopping`);
     poller.stop();
     peers.stop();
+    analytics.stop();
     for (const timer of timers) clearInterval(timer);
     server.close(() => {
       db.close();

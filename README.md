@@ -49,6 +49,15 @@ Browser: https://stats.pokepon.org ── sign in with Roblox (invite only), see
 
   The collector checks after every read and saves each milestone once (`milestones` in SQLite, backed up with the rest). Its first check of a game saves what the game had already reached quietly, as history; several steps reached at once (copying in 140 engaged players) celebrate only the highest. Each game's Overview lists what it reached (🎉 has the party again) and how far it is from the next step of each kind.
 
+## Roblox's own numbers (Analytics API, hourly)
+
+The collector also reads Roblox's own analytics for each game every hour, from the Open Cloud [Analytics Query API](https://create.roblox.com/docs/cloud/guides/analytics) (`collector/src/analytics.js`), with the same key: it needs **universe.analytics:read** for each experience (in the `universe-analytics` system) besides the DataStore and MemoryStore permissions. What it reads:
+
+- **The Benchmarks cards' values, as Roblox counts them:** average session length, D1 and D7 retention, payer conversion, ARPPU and play-through rate, as 7- and 30-day averages of Roblox's complete UTC days (retention: its last 7 / 30 days that have a value). They show on each card next to the live number, and play-through rate (only Roblox has impressions) no longer needs copying in. The API has no 50th/90th percentiles, so those still come from the sources below.
+- **Players at Roblox's "High" engagement level** over 60 days (`UserSegmentationEngagementLevel = High`), shown under the highly engaged players counter. Roblox doesn't say whether that's Audience Reach's count, so the counter itself stays the copied-in number.
+
+If the key lacks the permission, the log says so and everything else works as before.
+
 ## Benchmarks (Roblox's, live)
 
 The game's Overview shows Roblox's Benchmarks cards. The value on each is counted here from the game's own stats, every minute, with Roblox's definitions; where it stands is placed on Roblox's own 50th and 90th percentiles:
@@ -63,7 +72,7 @@ The game's Overview shows Roblox's Benchmarks cards. The value on each is counte
 
 - **Live:** the window (7 or 30 days, like Roblox's) ends now, today so far included, and is pooled (all tops ÷ all bottoms), so a quiet day can't swing it. Roblox averages complete days instead; that number is in each card's ⓘ, to compare.
 - **The 50th and 90th:** Roblox only shows them once a game has 100+ daily users, so each card takes the best source there is, and says which:
-  1. Roblox's own for this game, copied in by the owner (**Copy in from Roblox** on the Overview: paste Roblox's whole Benchmarks section, or type them in; every week or two is plenty).
+  1. Roblox's own for this game, copied in by the owner (**Copy in Roblox's percentiles** on the Overview: paste Roblox's whole Benchmarks section, or type them in; every week or two is plenty). Roblox's own values come from its API (above); only the 50th and 90th need copying.
   2. Average playtime: **measured live on the other games in the game's Roblox genre** (e.g. Simulation → Tycoon). Roblox's public data has every game's players online and visit count, and average session = players online × time ÷ new visits (on our own games, visits are ~92% of sessions, so it runs a little high). The collector finds them from Roblox's charts and search (only the ones Roblox files under the same genre, with 100+ visits a day, like Roblox's own benchmark pool), samples them every 10 minutes, and the percentile is your place among them. Retention, conversion and revenue aren't public for other games.
   3. Roblox's benchmarks copied in for another of our games in the same genre.
   4. Roblox-wide medians from GameAnalytics' 2026 Roblox report (playtime, D1, D7), not genre-specific.
@@ -88,6 +97,7 @@ The steps by hand:
 3. **Open Cloud key** (Creator Dashboard → Open Cloud → API Keys → Create): add every game's universe with
    - DataStores: **Read Entry** and **List Entry Keys**
    - Memory Stores: **Read sorted map** (`memory-store.sorted-map:read`)
+   - Analytics: **universe.analytics:read** (`universe-analytics`), for Roblox's own numbers
 
    Nothing else: it never writes. Restrict it to your home IP if that's stable.
 4. **`collector/.env`**: copy `collector/.env.example`, fill in the key, a dashboard secret (`openssl rand -base64 33`), and `ALLOWED_ORIGINS` as in the example. Optional `HEALTHCHECK_URL`: a free [healthchecks.io](https://healthchecks.io) ping, so you get an email when the Mac or collection stops.

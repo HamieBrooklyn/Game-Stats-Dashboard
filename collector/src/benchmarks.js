@@ -9,7 +9,10 @@
 // - Payer conversion rate: the share of daily active users who bought something that day: payers / dau.
 // - ARPPU: Robux earned per paying user, per day: robux × 70% (what the game keeps) / payers.
 // - Play-through rate: plays ÷ times the game was shown in home recommendations. Only Roblox knows the
-//   impressions, so this card shows Roblox's own number (copied in), never a live one.
+//   impressions, so this card shows Roblox's own number, never a live one.
+//
+// Roblox's own number for each card and window comes from its Analytics API (analytics.js, hourly), else from
+// what the owner copied in. The live cards show it beside theirs, to compare.
 //
 // Days are UTC, like the rest of the dashboard. "Live": the window ends now, so today so far is in it. Each
 // window is pooled (sum of the tops ÷ sum of the bottoms), so a quiet few hours today move it as little as their
@@ -205,6 +208,7 @@ function marksFor(metric, days, marks, context) {
 
 // The widget for one game's Overview. `saved`: the owner's copy of Roblox's numbers ({ basis, at, metrics });
 // `context`: see marksFor.
+// context.roblox: Roblox's analytics numbers (db.robloxMetrics)
 export function benchmarksWidget(game, read, at = S.now(), saved = null, context = {}) {
   const stored = saved && typeof saved === 'object' ? saved : {};
   const marks = stored.metrics || {};
@@ -212,21 +216,26 @@ export function benchmarksWidget(game, read, at = S.now(), saved = null, context
   for (const days of WINDOWS) {
     windows[days] = METRICS.map((metric) => {
       const bench = marks[metric.id] || {};
-      const fromRoblox = bench.value >= 0 && Number.isFinite(bench.value) ? { Value: bench.value, Percentile: Number.isFinite(bench.pct) ? bench.pct : null } : null;
+      const copied = bench.value >= 0 && Number.isFinite(bench.value) ? { Value: bench.value, Percentile: Number.isFinite(bench.pct) ? bench.pct : null } : null;
       const found = marksFor(metric, days, marks, context);
       const benchmark = found ? { P50: found.bench.p50, P90: found.bench.p90 } : null;
       const source = found ? { Kind: found.source.kind, Label: found.source.label } : null;
+      const place = (value) => {
+        if (!found) return null;
+        if (found.bench.values) return rankOf(found.bench.values, value);
+        return percentileOf(value, found.source.kind === 'roblox' ? found.bench : { p50: found.bench.p50, p90: found.bench.p90 });
+      };
+      // Roblox's own number for this window, from its Analytics API (analytics.js); else the one copied in
+      const api = context.roblox?.windows?.[days]?.[metric.id];
+      const fromRoblox = Number.isFinite(api) ? { Value: api, Percentile: place(api), Api: true, At: context.roblox.at } : copied;
       if (metric.robloxOnly) {
-        return { Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: false, Value: fromRoblox?.Value ?? null, Prev: null, Percentile: fromRoblox?.Percentile ?? null, Benchmark: benchmark, Source: source, FromRoblox: fromRoblox };
+        return { Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: false, Value: fromRoblox?.Value ?? null, Prev: null, Percentile: fromRoblox?.Percentile ?? null, Benchmark: benchmark, Source: source, FromRoblox: fromRoblox, Copied: copied };
       }
       const result = measure(metric, game, read, days, at);
-      let percentile = null;
-      if (found?.bench.values) percentile = rankOf(found.bench.values, result.value);
-      else if (found) percentile = percentileOf(result.value, found.source.kind === 'roblox' ? found.bench : { p50: found.bench.p50, p90: found.bench.p90 });
       return {
         Id: metric.id, Title: metric.title, Format: metric.format, Info: metric.info, Live: true,
         Value: result.value, Prev: result.prev, Roblox: result.roblox, Size: result.size, Small: result.size < (SMALL[metric.id] || 0),
-        Percentile: percentile, Benchmark: benchmark, Source: source, FromRoblox: fromRoblox,
+        Percentile: place(result.value), Benchmark: benchmark, Source: source, FromRoblox: fromRoblox, Copied: copied,
       };
     });
   }
@@ -234,6 +243,7 @@ export function benchmarksWidget(game, read, at = S.now(), saved = null, context
   return {
     Type: 'Benchmarks', Game: game.id, Basis: BASES[stored.basis] ? stored.basis : null,
     BasisLabel: BASES[stored.basis] || (genre ? `your genre, ${genre}` : null), Genre: genre, SavedAt: stored.at || null, Windows: windows,
+    RobloxAt: context.roblox?.at || null,
   };
 }
 

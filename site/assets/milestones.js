@@ -90,7 +90,9 @@ function counter(entry, { single, owner, saveEngaged }) {
       owner && saveEngaged ? h('button', { class: 'button small', type: 'button', onclick: () => editor(entry, saveEngaged) }, count === null ? 'Copy in' : 'Update') : null),
     h('div', { class: 'engaged-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(entry.Goal), 'aria-valuenow': String(count ?? 0), 'aria-label': `Highly engaged players, ${count ?? 0} of ${entry.Goal}` },
       fill, ticks),
-    foot);
+    foot,
+    entry.Api ? h('p', { class: 'note engaged-api', title: "Roblox's Analytics API, UserSegmentationEngagementLevel = High, unique daily players over the last 60 complete days. Roblox doesn't say whether this is Audience Reach's count." },
+      `Roblox's Analytics API: ${entry.Api.High.toLocaleString()} player${entry.Api.High === 1 ? '' : 's'} at its "High" engagement level in 60 days (read ${timeAgo(entry.Api.At)}; may not be the same count as Audience Reach)`) : null);
 }
 
 // The card. items: one per game (Count null = not copied in yet). ctx: { owner, saveEngaged }

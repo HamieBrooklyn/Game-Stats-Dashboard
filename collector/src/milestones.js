@@ -151,11 +151,14 @@ export function milestonesWidget(game, db) {
 export function engagedEntry(game, db) {
   const history = db.engagedHistory ? db.engagedHistory(game.id) : [];
   const last = history[history.length - 1] || null;
+  const roblox = db.robloxMetrics ? db.robloxMetrics(game.id) : null;
   return {
     Game: game.id, GameName: game.name, Slot: game.slot || 1,
     Goal: ENGAGED_GOAL, Keep: ENGAGED_KEEP,
     Count: last ? last.count : null, At: last ? last.t : null,
     History: history.slice(-60).map((row) => ({ T: row.t, Count: row.count })),
+    // Roblox's Analytics API: players at its "High" engagement level, 60 days (analytics.js)
+    Api: Number.isFinite(roblox?.engagedHigh) ? { High: roblox.engagedHigh, At: roblox.at } : null,
   };
 }
 
