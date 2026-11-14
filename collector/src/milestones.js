@@ -7,15 +7,18 @@
 // - Several steps of one kind reached at once (the owner copying in 140 engaged players): only the highest is
 //   celebrated, the others are saved quiet.
 //
-// Highly engaged players are Roblox's own count (Creator Hub → the experience → Audience Reach): Roblox doesn't
-// say exactly who counts (account age, playtime in the game, spending anywhere on Roblox), and the games' stats
-// have no per-player data, so the owner copies the number in (db: engaged, every copy kept). Roblox Kids and
-// Select need 250 unique plays by them in 60 days; 25 keeps a game listed.
+// Highly engaged players are Roblox's own count (Creator Hub → the experience → Publish settings → Manage
+// audience): Roblox doesn't say exactly who counts (account age, playtime in the game, spending anywhere on
+// Roblox), and the games' stats have no per-player data. The collector reads it live from Creator Hub when it
+// has an account cookie (audience.js); otherwise the owner copies it in. Either way it lands in db: engaged,
+// every reading kept. Roblox Kids and Select need 250 (Roblox's goal, read live when it can be) unique plays by
+// them in 60 days; 25 keeps a game listed.
 
 import * as S from './stats.js';
 
 export const ENGAGED_GOAL = 250;
 export const ENGAGED_KEEP = 25;
+const LIVE_FOR = 2 * 3600; // a Creator Hub read older than this isn't "live" any more (the cookie stopped working)
 
 const short = (value) => {
   for (const [size, suffix] of [[1e6, 'M'], [1e3, 'K']]) if (value >= size) return `${+(value / size).toFixed(1)}${suffix}`;
@@ -45,7 +48,8 @@ export const KINDS = {
     detail: (value) => (value === ENGAGED_GOAL
       ? "Roblox's Kids and Select evaluation goal: 250 unique plays by highly engaged players in 60 days."
       : `${ENGAGED_GOAL - value} more to Roblox's goal of ${ENGAGED_GOAL}.`),
-    level: (value) => (value === ENGAGED_GOAL ? 'epic' : value >= 100 ? 'big' : 'small'),
+    // 100: Roblox is lowering the goal from 250 to 100 (DevForum, Oct 2026), so both get fireworks
+    level: (value) => (value === ENGAGED_GOAL || value === 100 ? 'epic' : value >= 100 ? 'big' : 'small'),
   },
   players: {
     label: 'Players',
@@ -152,9 +156,13 @@ export function engagedEntry(game, db) {
   const history = db.engagedHistory ? db.engagedHistory(game.id) : [];
   const last = history[history.length - 1] || null;
   const roblox = db.robloxMetrics ? db.robloxMetrics(game.id) : null;
+  // Read live from Creator Hub (audience.js) when the collector has an account cookie: Roblox's own goal too
+  const reach = db.audienceReach ? db.audienceReach(game.id) : null;
+  const live = reach && S.now() - reach.at < LIVE_FOR ? reach : null;
   return {
     Game: game.id, GameName: game.name, Slot: game.slot || 1,
-    Goal: ENGAGED_GOAL, Keep: ENGAGED_KEEP,
+    Goal: live?.goal > 0 ? live.goal : ENGAGED_GOAL, Keep: live?.keep > 0 ? live.keep : ENGAGED_KEEP,
+    Live: live ? { At: live.at, UpdatedAt: live.updatedAt, Status: live.status, GraceDeadline: live.graceDeadline } : null,
     Count: last ? last.count : null, At: last ? last.t : null,
     History: history.slice(-60).map((row) => ({ T: row.t, Count: row.count })),
     // Roblox's Analytics API: players at its "High" engagement level, 60 days (analytics.js)

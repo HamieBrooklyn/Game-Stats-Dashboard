@@ -43,8 +43,8 @@ function editor(entry, save) {
     button.disabled = false;
   } },
     h('ol', { class: 'note bench-steps' },
-      h('li', {}, 'On Roblox: Creator Hub → this experience → Audience Reach.'),
-      h('li', {}, 'Type the number of highly engaged players it shows.')),
+      h('li', {}, 'On Roblox: Creator Hub → this experience → Publish settings → Manage audience.'),
+      h('li', {}, 'Type the number of highly engaged players it shows (the small number under the big heading).')),
     input,
     h('p', { class: 'note' }, 'Roblox counts unique plays by highly engaged players over the last 60 days, so the number can go down as old plays drop out. Roblox updates it in real time: copy it in whenever you like.'),
     error,
@@ -72,14 +72,16 @@ function counter(entry, { single, owner, saveEngaged }) {
     : null;
   const fill = h('div', { class: 'engaged-fill', style: `width:${(reduced() ? share : before0) * 100}%` });
   if (!reduced() && before0 !== share) requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = `${share * 100}%`; }));
-  const ticks = [entry.Keep, 100, 150, 200].map((value) => h('span', { class: `engaged-tick${count !== null && count >= value ? ' passed' : ''}`, style: `left:${(value / entry.Goal) * 100}%`, title: value === entry.Keep ? `${value}: what keeps a game listed once it's in` : String(value) }));
+  const ticks = [...new Set([entry.Keep, 50, 100, 150, 200])].filter((value) => value > 0 && value < entry.Goal).map((value) => h('span', { class: `engaged-tick${count !== null && count >= value ? ' passed' : ''}`, style: `left:${(value / entry.Goal) * 100}%`, title: value === entry.Keep ? `${value}: what keeps a game listed once it's in` : String(value) }));
   const foot = count === null
-    ? h('p', { class: 'note' }, 'Not copied in yet: Creator Hub → this experience → Audience Reach.')
+    ? h('p', { class: 'note' }, 'Not read yet: Creator Hub → this experience → Publish settings → Manage audience.')
     : h('p', { class: 'engaged-foot' },
       done ? h('strong', {}, 'Goal reached! ') : h('strong', {}, `${(entry.Goal - count).toLocaleString()} to go`),
       done ? `Keep it above ${entry.Keep} to stay in.` : null,
       delta ? ' · ' : null, delta,
-      ` · from Roblox ${timeAgo(entry.At)}`);
+      entry.Live
+        ? [' · ', h('span', { class: 'dot ok', style: 'display:inline-block;vertical-align:middle' }), ` live from Creator Hub, Roblox updated it ${timeAgo(entry.Live.UpdatedAt || entry.Live.At)}`]
+        : ` · copied in ${timeAgo(entry.At)}`);
   return h('div', { class: `engaged-item${done ? ' done' : ''}${single ? ' single' : ''}` },
     single ? null : h('div', { class: 'engaged-game' }, h('span', { class: 'game-dot', style: `background:var(--game-${entry.Slot})` }), entry.GameName),
     h('div', { class: 'engaged-count' },
@@ -87,12 +89,12 @@ function counter(entry, { single, owner, saveEngaged }) {
       done ? h('span', { class: 'engaged-badge' }, '🏆 Kids and Select') : null,
       h('span', { class: 'spacer' }),
       history.length > 1 ? sparkline(history.map((row) => row.Count), done ? 'var(--engaged-gold)' : 'var(--primary)') : null,
-      owner && saveEngaged ? h('button', { class: 'button small', type: 'button', onclick: () => editor(entry, saveEngaged) }, count === null ? 'Copy in' : 'Update') : null),
+      owner && saveEngaged && !entry.Live ? h('button', { class: 'button small', type: 'button', onclick: () => editor(entry, saveEngaged) }, count === null ? 'Copy in' : 'Update') : null),
     h('div', { class: 'engaged-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(entry.Goal), 'aria-valuenow': String(count ?? 0), 'aria-label': `Highly engaged players, ${count ?? 0} of ${entry.Goal}` },
       fill, ticks),
     foot,
-    entry.Api ? h('p', { class: 'note engaged-api', title: "Roblox's Analytics API, UserSegmentationEngagementLevel = High, unique daily players over the last 60 complete days. Roblox doesn't say whether this is Audience Reach's count." },
-      `Roblox's Analytics API: ${entry.Api.High.toLocaleString()} player${entry.Api.High === 1 ? '' : 's'} at its "High" engagement level in 60 days (read ${timeAgo(entry.Api.At)}; may not be the same count as Audience Reach)`) : null);
+    entry.Api && !entry.Live ? h('p', { class: 'note engaged-api', title: "Roblox's Analytics API, UserSegmentationEngagementLevel = High, unique daily players over the last 60 complete days. Roblox doesn't say whether this is Creator Hub's count." },
+      `Roblox's Analytics API: ${entry.Api.High.toLocaleString()} player${entry.Api.High === 1 ? '' : 's'} at its "High" engagement level in 60 days (read ${timeAgo(entry.Api.At)}; may not be the same count as Creator Hub's)`) : null);
 }
 
 // The card. items: one per game (Count null = not copied in yet). ctx: { owner, saveEngaged }
@@ -104,9 +106,11 @@ export function engagedCard(items, ctx = {}) {
   if (!ctx.owner && list.every((item) => item.Count === null)) return null;
   return h('section', { class: `card engaged${single ? ' single' : ''}` },
     h('h3', { class: 'card-title' }, '⭐ Highly engaged players',
-      h('span', { class: 'meta' }, `Goal: ${list[0].Goal} in 60 days, for Roblox Kids and Select`)),
+      h('span', { class: 'meta' }, `Roblox's goal: ${list[0].Goal} in 60 days, for Roblox Kids and Select`)),
     h('div', { class: 'engaged-grid' }, list.map((entry) => counter(entry, { ...ctx, single }))),
-    h('p', { class: 'note engaged-about' }, "Roblox's count from Creator Hub → Audience Reach: unique plays in the last 60 days by age-checked players with enough account age and playtime here who bought something anywhere on Roblox. Roblox doesn't publish the exact rules and only Roblox can count them, so the number is copied in."));
+    h('p', { class: 'note engaged-about' }, list.some((item) => item.Live)
+      ? "Roblox's own count, read live from Creator Hub (Publish settings → Manage audience) every 15 minutes: unique plays in the last 60 days by age-checked players with enough account age and playtime here who bought something anywhere on Roblox."
+      : "Roblox's count from Creator Hub → Publish settings → Manage audience: unique plays in the last 60 days by age-checked players with enough account age and playtime here who bought something anywhere on Roblox. Only Roblox counts them, so it's copied in (or read live once the collector has a Roblox sign-in, see the README)."));
 }
 
 export const engagedWidget = (widget, ctx) => engagedCard(widget.Items, ctx);

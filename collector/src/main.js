@@ -13,6 +13,7 @@ import { createServer } from './server.js';
 import { createAuth } from './auth.js';
 import { trackMilestones } from './milestones.js';
 import { createAnalytics, createAnalyticsClient } from './analytics.js';
+import { createAudience, createAudienceClient } from './audience.js';
 import * as S from './stats.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -105,6 +106,11 @@ export function main() {
   const peers = createPeers({ games, db, log, onChange: rebuild });
   // Roblox's own analytics numbers (the benchmark cards' values, "High" engagement players), hourly
   const analytics = createAnalytics({ games, db, log, onChange: rebuild, client: createAnalyticsClient(process.env.ROBLOX_OPEN_CLOUD_API_KEY) });
+  // Highly engaged players, live from Creator Hub, when there's an account cookie (audience.js). Milestones are
+  // checked by the rebuild.
+  const cookie = (process.env.ROBLOX_CREATOR_COOKIE || '').replace(/^\.ROBLOSECURITY=/, '').trim();
+  const audience = createAudience({ games, db, log, onChange: rebuild, client: cookie ? createAudienceClient(cookie) : null });
+  if (!cookie) log('no ROBLOX_CREATOR_COOKIE: highly engaged players are copied in by hand');
 
   function health() {
     const at = S.now();
@@ -166,6 +172,7 @@ export function main() {
   poller.start();
   peers.start();
   analytics.start();
+  audience.start();
   checkMilestones();
   views = buildViews(games, db);
 
@@ -191,6 +198,7 @@ export function main() {
     poller.stop();
     peers.stop();
     analytics.stop();
+    audience.stop();
     for (const timer of timers) clearInterval(timer);
     server.close(() => {
       db.close();
