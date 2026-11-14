@@ -63,7 +63,7 @@ for (const game of games) {
   if (game.feedback) {
     await step(`read feedback (${game.feedback.store})`, 'DataStores: Read Entry (universe-datastores.objects:read)', async () => {
       const meta = await client.getEntry(game.universeId, game.feedback.store, 'Meta');
-      return `${meta?.Count ?? 0} entries`;
+      return `${meta?.Count ?? meta?.count ?? 0} entries`;
     });
   }
   console.log(`- ${game.name} (universe ${game.universeId}):\n${lines.join('\n')}`);

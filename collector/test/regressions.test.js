@@ -117,6 +117,13 @@ test('feedback: entries deleted in the game go away', async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('feedback: camelCase entries (as some games write them) are read like PascalCase ones', async () => {
+  const { pascalKeys } = await import('../src/poller.js');
+  const entry = pascalKeys({ id: 7, at: 5, text: 'hi', tags: ['Bug'], player: { coins: 3, unlocked: { Easy: 2 } } });
+  assert.deepEqual(entry, { Id: 7, At: 5, Text: 'hi', Tags: ['Bug'], Player: { Coins: 3, Unlocked: { Easy: 2 } } });
+  assert.deepEqual(pascalKeys({ Id: 1, Text: 'a' }), { Id: 1, Text: 'a' }, 'PascalCase is left alone');
+});
+
 test('server: sessions survive a restart, bad bodies are 400, /health is private', async () => {
   const { createServer } = await import('../src/server.js');
   const options = { secret: 'a-long-enough-secret-for-tests-123', allowedOrigins: ['https://d.example'], getView: () => ({ json: '{}', etag: '"e"' }), health: () => ({ ok: true }), log: () => {} };

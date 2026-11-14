@@ -45,6 +45,16 @@ function saleCounters(bucket, into = {}) {
 
 const FLUSH_INTERVAL = 60; // a game server merges its counts this often, so a sale can be up to this much older than its merge
 
+// Some games write feedback in camelCase ({ id, at, text, player: { coins } }) instead of the panel's
+// PascalCase ({ Id, At, Text, Player: { Coins } }); both mean the same, so it's stored as PascalCase
+export function pascalKeys(value) {
+  if (Array.isArray(value)) return value.map(pascalKeys);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [key, inner] of Object.entries(value)) out[key.charAt(0).toUpperCase() + key.slice(1)] = pascalKeys(inner);
+  return out;
+}
+
 export function slotEnd(key) {
   const match = /^([HD])(\d+)_/.exec(key);
   if (!match) return Infinity;
@@ -185,13 +195,13 @@ export function createPoller({ games, client, db, log, onChange }) {
     const at = S.now();
     try {
       const meta = await client.getEntry(game.universeId, adapter.store, 'Meta');
-      const count = meta?.Count || 0;
+      const count = meta?.Count || meta?.count || 0;
       const pages = Math.ceil(count / (adapter.pageSize || 50));
       const from = all ? 1 : Math.max(pages - 1, 1);
       const size = adapter.pageSize || 50;
       for (let page = pages; page >= from; page--) {
         const raw = await client.getEntry(game.universeId, adapter.store, `Page_${page}`);
-        const entries = (Array.isArray(raw) ? raw : Object.values(raw || {})).filter((entry) => entry && typeof entry === 'object' && typeof entry.Id === 'number');
+        const entries = (Array.isArray(raw) ? raw : Object.values(raw || {})).map(pascalKeys).filter((entry) => entry && typeof entry === 'object' && typeof entry.Id === 'number');
         db.replaceFeedbackPage(game.id, (page - 1) * size + 1, page * size, entries);
       }
       db.sourceOk(game.id, 'feedback', at);
