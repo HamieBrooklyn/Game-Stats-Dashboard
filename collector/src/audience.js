@@ -21,7 +21,8 @@ export function parseAudienceReach(body) {
   const hep = body?.highlyEngagedPlayers;
   if (!hep || !Number.isFinite(Number(hep.engagedPlayersCount))) return null;
   const number = (value) => (Number.isFinite(Number(value)) && value !== null ? Number(value) : null);
-  const time = (value) => (value ? Math.floor(Date.parse(value) / 1000) || null : null);
+  // Roblox sends "2026-11-14T13:00:00" with no zone: it's UTC (read as local time it would be hours off)
+  const time = (value) => (value ? Math.floor(Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(value) ? value : `${value}Z`) / 1000) || null : null);
   return {
     count: Number(hep.engagedPlayersCount),
     goal: number(hep.thresholdTrigger),

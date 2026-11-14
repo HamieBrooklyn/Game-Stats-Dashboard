@@ -19,6 +19,8 @@ const ANSWER = {
 test('audience: reads the count, the goal and the stay-in number', () => {
   assert.deepEqual(parseAudienceReach(ANSWER), { count: 37, goal: 100, keep: 25, status: 'InProgress', updatedAt: Date.parse('2026-11-14T13:00:00Z') / 1000, graceDeadline: null, reach: 'Gated' });
   assert.equal(parseAudienceReach({ notices: [] }), null, 'no count: nothing');
+  const noZone = parseAudienceReach({ highlyEngagedPlayers: { ...ANSWER.highlyEngagedPlayers, updatedAt: '2026-11-14T13:00:00' } });
+  assert.equal(noZone.updatedAt, Date.parse('2026-11-14T13:00:00Z') / 1000, 'a time with no zone is UTC');
 });
 
 test('audience: the cookie only goes to Roblox, as .ROBLOSECURITY', async () => {
