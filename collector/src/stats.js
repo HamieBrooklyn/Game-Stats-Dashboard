@@ -11,6 +11,7 @@ export const DEVELOPER_SHARE = 0.7;
 export const JOURNEYS_KEY = 'Journeys';
 export const DEFS_KEY = 'FunnelDefs';
 export const MAX_JOURNEYS = 300;
+export const FIRST_PURCHASE_MINUTES = [5, 15, 30, 60, 180, 600]; // minutes played before the first purchase
 
 export const RANGES = {
   '24h': { unit: 'Hour', count: 24, label: '24 hours' },
@@ -61,6 +62,14 @@ export function bucketLabel(value, edges, unit = '') {
     }
   }
   return `${edges[edges.length - 1]}+${unit}`;
+}
+
+// Every bucket's label in order (Stats.bucketLabels)
+export function bucketLabels(edges, unit = '') {
+  const labels = [bucketLabel(edges[0] - 1e-9, edges, unit)];
+  for (let index = 1; index < edges.length; index++) labels.push(bucketLabel(edges[index - 1], edges, unit));
+  labels.push(bucketLabel(edges[edges.length - 1], edges, unit));
+  return labels;
 }
 
 export const emptyBucket = () => ({ c: {}, m: {} });

@@ -6,8 +6,8 @@ import { lineChart, sparkline } from './charts.js';
 import { renderWidgets, card } from './widgets.js';
 
 const API = String(window.STATS_API || '').replace(/\/$/, '');
-const PAGES = { overview: 'Overview', funnels: 'Funnels', live: 'Live', feedback: 'Feedback', people: 'People' };
-const REFRESH = { overview: 60, funnels: 60, live: 15, feedback: 120, people: 120 }; // seconds
+const PAGES = { overview: 'Overview', funnels: 'Funnels', money: 'Monetization', live: 'Live', feedback: 'Feedback', people: 'People' };
+const REFRESH = { overview: 60, funnels: 60, money: 30, live: 15, feedback: 120, people: 120 }; // seconds
 const MAX_GAME_LINES = 3; // game lines on one chart (more stop being tellable apart)
 
 const state = {
@@ -314,6 +314,19 @@ function pickGame(page) {
       : h('p', { class: 'note' }, 'No game is reporting stats yet.')));
 }
 
+// Monetization across every game (each game's own page says why for its suggestions)
+async function moneyAll(quiet, token) {
+  const { data, changed } = await api(`/v1/money?range=${state.range}`);
+  if (token !== renderToken || (quiet && !changed)) return;
+  setAsOf(data.at);
+  const body = h('div', { style: 'display:grid;gap:16px' });
+  renderWidgets(data.widgets, body);
+  const coverage = data.coverage.reporting < data.coverage.total
+    ? h('p', { class: 'note' }, `${data.coverage.reporting} of ${data.coverage.total} games are reporting; totals only include those.`)
+    : null;
+  show(coverage, body);
+}
+
 async function liveAll(quiet, token) {
   const { data, changed } = await api(`/v1/overview?range=24h`);
   if (token !== renderToken || (quiet && !changed)) return;
@@ -495,6 +508,7 @@ async function render({ quiet = false } = {}) {
       // try again at the next refresh
     } else if (state.page === 'overview') await (game ? gamePage('overview', true, quiet, token) : overviewAll(quiet, token));
     else if (state.page === 'funnels') await (game ? gamePage('funnels', true, quiet, token) : pickGame('funnels'));
+    else if (state.page === 'money') await (game ? gamePage('money', true, quiet, token) : moneyAll(quiet, token));
     else if (state.page === 'live') await (game ? gamePage('live', false, quiet, token) : liveAll(quiet, token));
     else await feedbackPage(quiet, token);
   } catch (error) {

@@ -8,6 +8,9 @@
 // - Feedback (when the game has an adapter): the count and newest page every 2 minutes, every page hourly
 //   (statuses change on old pages).
 // - Shards: once a day, from the keys of today's day bucket (a wrong count would under-count everything).
+// - Sales feed: whenever an hour bucket is read, what its items' purchases and Robux went up by since the read
+//   before is saved as a sale (db.addSale), with the time window it happened in. Servers merge every 60 s and the
+//   current hour is read every minute, so a sale shows up about 1-2 minutes after it happened.
 
 import * as S from './stats.js';
 
@@ -16,6 +19,31 @@ const BACKFILL_PER_MINUTE = 20;
 const HOURS_NEEDED = 48; // the 24h range and the 24 hours before it
 const DAYS_NEEDED = 60; // the 30d range and the 30 days before it
 const COHORT_DAYS = 31;
+
+// What each item's purchases and Robux went up by from `before` to `after` (two reads of one bucket). Counters
+// only grow; a counter that seems to shrink (an older read arriving late) adds nothing.
+export function saleDeltas(before, after) {
+  const was = before?.c || {}, now = after?.c || {};
+  const sales = [];
+  for (const [key, value] of Object.entries(now)) {
+    if (!key.startsWith('purchases#') || key.includes('|')) continue;
+    const item = key.slice('purchases#'.length);
+    const count = value - (was[key] || 0);
+    if (!(count > 0)) continue;
+    sales.push({ item, count, robux: Math.max(0, (now[`robux#${item}`] || 0) - (was[`robux#${item}`] || 0)) });
+  }
+  return sales;
+}
+
+// The item counters a sale is measured from (the highest seen of each)
+function saleCounters(bucket, into = {}) {
+  for (const [key, value] of Object.entries(bucket?.c || {})) {
+    if ((key.startsWith('purchases#') || key.startsWith('robux#')) && !key.includes('|') && !(into[key] >= value)) into[key] = value;
+  }
+  return into;
+}
+
+const FLUSH_INTERVAL = 60; // a game server merges its counts this often, so a sale can be up to this much older than its merge
 
 export function slotEnd(key) {
   const match = /^([HD])(\d+)_/.exec(key);
@@ -44,10 +72,37 @@ export function neededKeys(game, at) {
 export function createPoller({ games, client, db, log, onChange }) {
   const timers = [];
   const state = new Map(); // per game: last runs
+  const saleBaselines = new Map(); // "<game>\0<hour key>" -> { c: item counters already counted as sales, at }
+
+  // Saves what this read of an hour bucket added as sales. The baseline is the highest count seen so far (two
+  // reads can overlap, and the older one may answer last), first taken from the cached copy. A bucket never
+  // read before counts from its hour's start: a fresh install fills the feed with whole-hour windows.
+  function noteSales(game, key, value, at) {
+    const match = /^H(\d+)_/.exec(key);
+    if (!match) return;
+    const id = `${game.id}\u0000${key}`;
+    const start = Number(match[1]) * 3600, end = start + 3600;
+    let baseline = saleBaselines.get(id);
+    if (!baseline) {
+      const cached = db.entry(game.id, key);
+      baseline = cached ? { c: saleCounters(cached.value), at: cached.fetchedAt } : { c: {}, at: start };
+      saleBaselines.set(id, baseline);
+    }
+    const to = Math.min(at, end);
+    const from = Math.min(Math.max(start, baseline.at - FLUSH_INTERVAL), to - FLUSH_INTERVAL);
+    for (const sale of saleDeltas(baseline, value)) db.addSale(game.id, Math.max(start, from), to, sale.item, sale.count, sale.robux);
+    saleCounters(value, baseline.c);
+    baseline.at = Math.max(baseline.at, at);
+  }
+
+  function pruneSaleBaselines(at) {
+    for (const [id] of saleBaselines) if (slotEnd(id.split('\u0000')[1]) < at - 3 * 86400) saleBaselines.delete(id);
+  }
 
   async function read(game, key, at = S.now()) {
     try {
       const value = await client.getEntry(game.universeId, game.store, key);
+      noteSales(game, key, value, at);
       db.putEntry(game.id, key, value, at, isFinal(key, at));
       db.sourceOk(game.id, 'datastore', at);
       return true;
@@ -106,6 +161,7 @@ export function createPoller({ games, client, db, log, onChange }) {
     const today = S.dayOf(at);
     for (let day = today - COHORT_DAYS + 1; day <= today; day++) await read(game, S.cohortKey(day), at);
     for (const key of [S.JOURNEYS_KEY, S.DEFS_KEY, 'Markers']) await read(game, key, at);
+    pruneSaleBaselines(at);
   }
 
   async function detectShards(game) {

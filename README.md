@@ -13,7 +13,7 @@ Mac: collector (Node 24, SQLite)  ── launchd, starts at boot, restarts if it
 Browser: https://stats.pokepon.org ── sign in with Roblox (invite only), sees only their games
 ```
 
-**Why it's accurate:** the games already write their stats to their own DataStores; the collector only reads them, so nothing is counted twice and nothing is lost when the Mac is off (it catches up). The numbers come from a port of the panel's own math, checked against the package's real Luau (`collector/test/parity.test.js`). Days and hours are UTC, like the panel. Buckets are re-read until they're final (15 minutes after their hour/day ended) and the last two days are re-read every hour. What the collector adds on top, the 15-second "players online" samples, is backed up daily.
+**Why it's accurate:** the games already write their stats to their own DataStores; the collector only reads them, so nothing is counted twice and nothing is lost when the Mac is off (it catches up). The numbers come from a port of the panel's own math, checked against the package's real Luau (`collector/test/parity.test.js`). Days and hours are UTC, like the panel. Buckets are re-read until they're final (15 minutes after their hour/day ended) and the last two days are re-read every hour. What the collector adds on top, the 15-second "players online" samples and the sales feed (what each read of an hour bucket added), is backed up daily.
 
 **Intended differences from the in-game panel:** D1 shows "—" instead of 0% before a day is old enough; the hour or day still in progress is drawn dashed; the Live server list leaves out player names; there's no Lookup tab.
 
@@ -23,6 +23,21 @@ Browser: https://stats.pokepon.org ── sign in with Roblox (invite only), see
 
 - **Overview**: all games (playing now, players, new, sessions, Robux, conversion, D1, players online over 24 h, every game's status) or one game (the panel's Overview tab).
 - **Funnels**: one game's funnels (each player once per step), where players stop and quit, recent sessions.
+- **Monetization**: one game or all of them.
+  - **Sales right now:** this hour, the hour before, today and yesterday, plus a feed of the latest sales (about 1–2 minutes behind: servers merge every minute and the collector reads every minute).
+  - **What to change:** suggestions on prices and prompts.
+  - **Robux and purchases over time**, and each item over time.
+  - **Every item:** price now, prompts, purchases, rate, Robux and its change, share, Robux per prompt.
+  - **Price history:** every price change of the last 60 days, before and after.
+  - **Where prompts come from**, and minutes played before the first purchase.
+
+  The tiles and item numbers are the in-game panel's Money tab. Suggestions are things to test, not sure things:
+  - An item that clearly sells far more easily than the game's typical item (and to at least 1 in 10 prompts) → try a higher price.
+  - One that clearly sells far less easily, or not at all → try a lower one.
+  - Hundreds of prompts and under 1% buying → show it at a better moment first.
+  - A price change that earns less per prompt than before → undo it.
+
+  "Clearly" means beyond a 90% interval, so a few lucky sales don't count. An item's price is what its sales cost (Robux ÷ purchases per day), so price changes are found without any setup. Rates and most suggestions need the game to report prompts (`Stats.prompt`) as well as purchases.
 - **Live**: players online and servers, every 15 seconds.
 - **Feedback**: every game's feedback, newest first, filter by game, sentiment, status or text.
 

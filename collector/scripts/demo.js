@@ -15,29 +15,62 @@ let seed = 7;
 const int = (a, b) => a + ((seed = (seed * 16807) % 2147483647) % (b - a + 1));
 
 const ONBOARDING = ['Joined', 'LoadingScreenDone', 'IntroFinished', 'RollCar', 'ClaimCar', 'PlaceCar', 'CollectCash', 'TutorialComplete', 'DailyRewardClaimed', 'Roll5', 'AchievementsOpen', 'Roll10'];
+// Made-up items, one for each kind of suggestion: a pop-up nobody wants, a starter pack that sells too easily, a
+// price raise that paid (DoubleCash, 99 -> 149 two weeks ago), an offer nobody buys
+const ITEMS = [
+  { name: 'AutoRoll', price: () => 79, prompts: 1.4, rate: 0.0025, source: 'Popup' },
+  { name: 'StarterPack', price: () => 49, prompts: 0.08, rate: 0.34, source: 'Shop' },
+  { name: 'VIP', price: () => 199, prompts: 0.1, rate: 0.06, source: 'Shop' },
+  { name: 'DoubleCash', price: (day) => (day < Math.floor(AT / 86400) - 14 ? 99 : 149), prompts: 0.12, rate: (day) => (day < Math.floor(AT / 86400) - 14 ? 0.1 : 0.088), source: 'Shop' },
+  { name: 'Cash1000', price: () => 25, prompts: 0.2, rate: 0.12, source: 'Rebirth' },
+  { name: 'MegaBundle', price: () => 999, prompts: 0.05, rate: 0, source: 'Shop' },
+];
+const noisy = (value) => Math.round(value * (0.75 + int(0, 50) / 100));
+
+// Adds `count` purchases (and their prompts) of an item to a bucket
+function addSale(c, item, day, count, prompts) {
+  const price = item.price(day);
+  c[`prompt#${item.name}`] = (c[`prompt#${item.name}`] || 0) + prompts;
+  c[`prompt_src#${item.source}`] = (c[`prompt_src#${item.source}`] || 0) + prompts;
+  if (!count) return;
+  c[`purchases#${item.name}`] = (c[`purchases#${item.name}`] || 0) + count;
+  c[`robux#${item.name}`] = (c[`robux#${item.name}`] || 0) + count * price;
+  c[`purchase_src#${item.source}`] = (c[`purchase_src#${item.source}`] || 0) + count;
+  c.purchases = (c.purchases || 0) + count;
+  c.robux = (c.robux || 0) + count * price;
+}
+
 const labelOf = (id) => id.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/([A-Za-z])(\d)/g, '$1 $2').replace(/^(.)(.*)$/, (_, a, b) => a + b.toLowerCase());
 
 function gameStore(scale) {
   const data = {};
   const hour = Math.floor(AT / 3600), day = Math.floor(AT / 86400);
-  const bucket = (size, hourly) => {
+  const bucket = (size, hourly, slot) => {
     const players = Math.round(size * scale);
     const c = {
       dau: players, hau: players, new_users: Math.round(players * 0.35), sessions: Math.round(players * 1.4), sessions_ended: Math.round(players * 1.3),
-      session_sum: Math.round(players * 1.3 * int(500, 900)), playtime: Math.round(players * int(900, 1600)), robux: Math.round(players * int(2, 9)), payers: Math.round(players * 0.04),
+      session_sum: Math.round(players * 1.3 * int(500, 900)), playtime: Math.round(players * int(900, 1600)), payers: Math.round(players * 0.04),
       'fu#Shop:Opened': Math.round(players * 0.5), 'fu#Shop:ItemPrompted': Math.round(players * 0.2), 'fu#Shop:Purchased': Math.round(players * 0.03),
       'funnel#Shop:01:Opened': Math.round(players * 0.9), 'funnel#Shop:02:ItemPrompted': Math.round(players * 0.3), 'funnel#Shop:03:Purchased': Math.round(players * 0.04),
     };
     c[`${hourly ? 'hau' : 'dau'}_gap#new`] = c.new_users;
     c[`${hourly ? 'hau' : 'dau'}_gap#1`] = Math.round(players * 0.4);
     c[`${hourly ? 'hau' : 'dau'}_gap#old`] = players - c.new_users - Math.round(players * 0.4);
+    const itemDay = hourly ? Math.floor(slot / 24) : slot;
+    for (const item of ITEMS) {
+      const prompts = noisy(players * item.prompts);
+      const rate = typeof item.rate === 'function' ? item.rate(itemDay) : item.rate;
+      addSale(c, item, itemDay, Math.round(prompts * rate * (0.8 + int(0, 40) / 100)), prompts);
+    }
+    c.first_purchase = Math.round(players * 0.02);
+    for (const [label, share] of [['<5m', 0.2], ['5-15m', 0.3], ['15-30m', 0.2], ['30-60m', 0.15], ['60-180m', 0.1], ['180-600m', 0.05]]) c[`first_purchase_min#${label}`] = Math.round(c.first_purchase * share);
     return { c, m: { ccu: Math.round(players / (hourly ? 3 : 12)) } };
   };
   for (let h = hour - 47; h <= hour; h++) {
     const local = ((h % 24) + 24) % 24;
-    data[`H${h}_0`] = bucket(40 + 30 * Math.sin(((local - 8) / 24) * Math.PI * 2) + int(0, 12), true);
+    data[`H${h}_0`] = bucket(40 + 30 * Math.sin(((local - 8) / 24) * Math.PI * 2) + int(0, 12), true, h);
   }
-  for (let d = day - 59; d <= day; d++) data[`D${d}_0`] = bucket(600 + (d - day) * 3 + int(0, 120), false);
+  for (let d = day - 59; d <= day; d++) data[`D${d}_0`] = bucket(600 + (d - day) * 3 + int(0, 120), false, d);
   for (let d = day - 30; d <= day; d++) {
     const size = Math.round(int(150, 260) * scale);
     const counts = { size, d1: Math.round(size * 0.22), d7: Math.round(size * 0.07) };
@@ -79,6 +112,17 @@ const feedback = {
   ],
 };
 
+// Players keep buying while the demo runs: now and then a read of this hour's bucket finds a new sale
+function liveSale(store) {
+  if (Math.random() > 0.6) return;
+  const now = Math.floor(Date.now() / 1000), day = Math.floor(now / 86400);
+  const item = ITEMS[[0, 1, 1, 2, 3, 3, 4, 4][Math.floor(Math.random() * 8)]];
+  for (const key of [`H${Math.floor(now / 3600)}_0`, `D${day}_0`]) {
+    store[key] ??= { c: {}, m: {} };
+    addSale(store[key].c, item, day, 1, 2);
+  }
+}
+
 const fake = http.createServer((request, response) => {
   const url = new URL(request.url, 'http://x');
   const json = (status, body) => { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(body)); };
@@ -87,6 +131,7 @@ const fake = http.createServer((request, response) => {
   if (url.pathname.endsWith('/entries/entry')) {
     const source = url.searchParams.get('datastoreName') === 'Feedback_v1' ? feedback : store;
     const key = url.searchParams.get('entryKey');
+    if (universe === 101 && key === `H${Math.floor(Date.now() / 3600000)}_0`) liveSale(store);
     return key in source ? json(200, source[key]) : json(404, {});
   }
   if (url.pathname.endsWith('/entries')) return json(200, { keys: Object.keys(store).filter((key) => key.startsWith(url.searchParams.get('prefix'))).map((key) => ({ key })) });

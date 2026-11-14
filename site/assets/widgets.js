@@ -1,8 +1,10 @@
 // Draws the panel's widget JSON (the collector builds the same widgets the in-game panel shows): Tiles, Line,
-// Bars, Columns, Funnel, Table, Text and Section. Unknown types are skipped.
+// Bars, Columns, Funnel, Table, Text and Section, plus the Monetization page's own (money.js). Unknown types are
+// skipped.
 
 import { format, change, h } from './format.js';
 import { lineChart, sparkline, dataTable } from './charts.js';
+import { moneyWidgets } from './money.js';
 
 function card(title, ...children) {
   return h('section', { class: 'card' }, title ? h('h3', { class: 'card-title' }, title) : null, ...children);
@@ -195,6 +197,8 @@ const Draw = {
       rows.length > 300 ? h('p', { class: 'note' }, `and ${rows.length - 300} more`) : null);
   },
 };
+
+Object.assign(Draw, moneyWidgets);
 
 export function renderWidgets(widgets, container) {
   const nodes = [];

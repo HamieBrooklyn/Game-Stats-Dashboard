@@ -1,6 +1,6 @@
 // The collector's SQLite file (node:sqlite, WAL, one writer: this process). It mirrors the games' DataStore keys
 // (which stay the real record) and keeps what can't be read back later: the online-player samples taken every
-// 15 s, and when each source last worked. Backed up daily (VACUUM INTO), 7 kept.
+// 15 s, the sales feed (what each read of an hour bucket added, poller.js), and when each source last worked. Backed up daily (VACUUM INTO), 7 kept.
 
 import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
@@ -22,6 +22,11 @@ export function openDatabase(file) {
     CREATE INDEX IF NOT EXISTS ccu_t ON ccu (t);
     CREATE TABLE IF NOT EXISTS feedback (game TEXT NOT NULL, id INTEGER NOT NULL, value TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (game, id));
     CREATE INDEX IF NOT EXISTS feedback_at ON feedback (at);
+    -- Sales seen between two reads of an hour bucket: count of item, for robux in all, bought between t_from and t_to
+    CREATE TABLE IF NOT EXISTS sales (
+      game TEXT NOT NULL, t_from INTEGER NOT NULL, t_to INTEGER NOT NULL, item TEXT NOT NULL, count INTEGER NOT NULL, robux INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS sales_t ON sales (t_to);
     CREATE TABLE IF NOT EXISTS sources (
       game TEXT NOT NULL, source TEXT NOT NULL, ok_at INTEGER, error TEXT, error_at INTEGER,
       PRIMARY KEY (game, source)
@@ -45,6 +50,9 @@ export function openDatabase(file) {
     addCcu: db.prepare('INSERT INTO ccu (game, t, players, servers) VALUES (?, ?, ?, ?)'),
     ccuSince: db.prepare('SELECT game, t, players FROM ccu WHERE t >= ? ORDER BY t'),
     pruneCcu: db.prepare('DELETE FROM ccu WHERE t < ?'),
+    addSale: db.prepare('INSERT INTO sales (game, t_from, t_to, item, count, robux) VALUES (?, ?, ?, ?, ?, ?)'),
+    salesSince: db.prepare('SELECT game, t_from, t_to, item, count, robux FROM sales WHERE t_to >= ? ORDER BY t_to DESC, rowid DESC LIMIT ?'),
+    pruneSales: db.prepare('DELETE FROM sales WHERE t_to < ?'),
     putFeedback: db.prepare(`INSERT INTO feedback (game, id, value, at) VALUES (?, ?, ?, ?)
       ON CONFLICT (game, id) DO UPDATE SET value = excluded.value, at = excluded.at`),
     feedback: db.prepare('SELECT game, value FROM feedback ORDER BY at DESC LIMIT 2000'),
@@ -94,6 +102,16 @@ export function openDatabase(file) {
     },
     pruneCcu(before) {
       statements.pruneCcu.run(before);
+    },
+    addSale(game, from, to, item, count, robux) {
+      statements.addSale.run(game, from, to, item, count, robux);
+    },
+    // Newest first
+    salesSince(t, limit = 2000) {
+      return statements.salesSince.all(t, limit).map((row) => ({ game: row.game, from: row.t_from, to: row.t_to, item: row.item, count: row.count, robux: row.robux }));
+    },
+    pruneSales(before) {
+      statements.pruneSales.run(before);
     },
     putFeedback(game, entry) {
       statements.putFeedback.run(game, entry.Id, JSON.stringify(entry), entry.At || 0);

@@ -1,12 +1,14 @@
 // Builds every view the dashboard asks for from the cache, after each poll, so requests only serve ready JSON
-// (with an ETag). Per game: Overview, Funnels and Live (the panel's math, query.js / funnels.js). All games:
+// (with an ETag). Per game: Overview, Funnels, Monetization and Live (the panel's math, query.js / funnels.js, with
+// money.js on top). All games:
 // totals added up the right way (sums of counts, never averages of percentages), each game's status, and
 // players online over 24 hours from the collector's own 15 s samples.
 
 import crypto from 'node:crypto';
 import * as S from './stats.js';
-import { overviewTab, liveTab, funnelsTab, funnelDefsOf, ratio } from './query.js';
+import { overviewTab, liveTab, funnelsTab, moneyTab, funnelDefsOf, ratio } from './query.js';
 import { presentFunnels } from './present.js';
+import { itemHistory, adviseItems, salesNow, presentMoney, moneyTotals, moneyAll } from './money.js';
 
 const RANGE_IDS = Object.keys(S.RANGES);
 const SAMPLE_BIN = 300; // the online line's bins: 5 minutes
@@ -94,6 +96,9 @@ export function buildViews(games, db, at = S.now()) {
   const sources = db.sources();
   const gameRows = [];
   const allTotals = Object.fromEntries(RANGE_IDS.map((id) => [id, []]));
+  const allMoney = Object.fromEntries(RANGE_IDS.map((id) => [id, []]));
+  const ids = new Set(games.map((game) => game.id));
+  const feed = db.salesSince(at - 86400).filter((sale) => ids.has(sale.game)); // the sales feed: the last 24 hours
   for (const game of games) {
     const read = (key) => db.entry(game.id, key)?.value ?? undefined;
     const status = gameStatus(game, sources, read, at);
@@ -103,8 +108,15 @@ export function buildViews(games, db, at = S.now()) {
     const base = { game: { id: game.id, name: game.name, slot: game.slot }, status, at, utc: true };
     let live = null;
     if (game.universeId) {
+      // Each range is loaded once (Overview and Monetization share it). Item history and suggestions use the 60
+      // days of day buckets (the 30d range and the one before it), whatever the range shown.
+      const overviews = Object.fromEntries(RANGE_IDS.map((rangeId) => [rangeId, overviewTab(game, read, rangeId, at)]));
+      const history = itemHistory(game, read, at, overviews['30d'].range);
+      const advice = adviseItems(history);
+      const now = salesNow(game, read, at);
+      const gameFeed = feed.filter((sale) => sale.game === game.id);
       for (const rangeId of RANGE_IDS) {
-        const overview = overviewTab(game, read, rangeId, at);
+        const overview = overviews[rangeId];
         allTotals[rangeId].push({ game, totals: overview.totals, status });
         views.set(`/v1/games/${game.id}/overview?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: overview.widgets }));
         const funnels = presentFunnels(funnelsTab(game, read, rangeId, at).widgets, {
@@ -113,6 +125,10 @@ export function buildViews(games, db, at = S.now()) {
           rangeLabel: rangeId === '24h' ? 'last day' : `last ${S.RANGES[rangeId].count} days`,
         });
         views.set(`/v1/games/${game.id}/funnels?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: funnels }));
+        const money = moneyTab(game, read, rangeId, at, overview.range);
+        const rangeLabel = rangeId === '24h' ? 'last 24 hours' : `last ${S.RANGES[rangeId].count} days`;
+        views.set(`/v1/games/${game.id}/money?range=${rangeId}`, withEtag({ ...base, range: rangeId, widgets: presentMoney(money, { game, history, advice, now, feed: gameFeed, rangeLabel }) }));
+        if (status.state === 'ok' || status.state === 'stale') allMoney[rangeId].push({ game, history, advice, now, ...moneyTotals(money, history, game) });
       }
       live = liveTab(game, read, servers, at);
       views.set(`/v1/games/${game.id}/live`, withEtag({ ...base, widgets: live.widgets }));
@@ -153,6 +169,15 @@ export function buildViews(games, db, at = S.now()) {
           spark: t ? t.activeSeries : [], labels: t ? t.labels : [],
         };
       }),
+    }));
+  }
+  for (const rangeId of RANGE_IDS) {
+    const rangeLabel = rangeId === '24h' ? 'last 24 hours' : `last ${S.RANGES[rangeId].count} days`;
+    const reporting = allMoney[rangeId];
+    views.set(`/v1/money?range=${rangeId}`, withEtag({
+      at, range: rangeId,
+      coverage: { reporting: reporting.length, total: games.filter((game) => game.universeId).length },
+      widgets: moneyAll(reporting, { feed, games, rangeLabel }),
     }));
   }
   views.set('/v1/feedback', withEtag(feedbackView(games, db)));

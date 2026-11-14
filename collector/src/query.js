@@ -1,7 +1,7 @@
 // The panel's tab math (Spotlight Admin src/server/Stats/Query.lua @ dd14298), ported so the dashboard shows the
 // same numbers. Builds the same widget JSON the panel draws. Reads saved store values through `read(key)`
-// (the collector's cache of the game's DataStore). Only the tabs the dashboard has are ported: Overview and Live
-// here, Funnels in funnels.js.
+// (the collector's cache of the game's DataStore). Only the tabs the dashboard has are ported: Overview, Money and
+// Live here, Funnels in funnels.js. (Money: Spotlight-Admin @ 25f321e; money.js adds the dashboard's own extras.)
 
 import * as S from './stats.js';
 import { buildFunnelView } from './funnels.js';
@@ -31,7 +31,7 @@ export function labelsOf(source, name) {
 }
 export const ratio = (a, b) => (b > 0 ? a / b : 0);
 const slotValue = (bucket, name, suffix) => bucket.c[name + suffix] || 0;
-const series = (slots, name, suffix) => slots.map((bucket) => slotValue(bucket, name, suffix));
+export const series = (slots, name, suffix) => slots.map((bucket) => slotValue(bucket, name, suffix));
 const peakSeries = (slots, name) => slots.map((bucket) => bucket.m[name] || 0);
 
 function gapNames(range) {
@@ -131,9 +131,35 @@ const line = (read, title, format, range, list, withMarkers) => ({
   Markers: withMarkers ? markers(read, range) : undefined,
 });
 
+const TOP = 12; // rows in a breakdown
+
+// Horizontal bars of the biggest labels, with last period's value to compare (bars): past `top`, the rest is "Other"
+export function bars(title, format, values, prevValues, top, rename) {
+  const items = [];
+  for (const [label, value] of Object.entries(values)) {
+    if (value !== 0) items.push({ Label: rename ? rename(label) : label, Value: value, Prev: prevValues ? prevValues[label] || 0 : undefined });
+  }
+  items.sort((a, b) => b.Value - a.Value);
+  const limit = top || TOP;
+  if (items.length > limit) {
+    let other = 0;
+    for (let index = items.length - 1; index >= limit - 1; index--) {
+      other += items[index].Value;
+      items.splice(index, 1);
+    }
+    items.push({ Label: 'Other', Value: other });
+  }
+  return { Type: 'Bars', Title: title, Format: format, Items: items };
+}
+
+// Columns in a fixed order of labels, a histogram (columns)
+export function columns(title, format, order, values) {
+  return { Type: 'Columns', Title: title, Format: format, Items: order.map((label) => ({ Label: label, Value: values[label] || 0 })) };
+}
+
 // The Overview tab (Tabs.Overview). D1 is null (shown "—") when no cohort is old enough yet.
-export function overviewTab(game, read, rangeId, at = S.now()) {
-  const range = loadRange(game, read, rangeId, '', at);
+// `range` is the loaded range (returned too, so other tabs can reuse it).
+export function overviewTab(game, read, rangeId, at = S.now(), range = loadRange(game, read, rangeId, '', at)) {
   const cur = range.index, prev = range.prevIndex;
   const active = gapNames(range)[0];
   const players = uniques(range, range.slots), prevPlayers = uniques(range, range.prevSlots);
@@ -173,6 +199,56 @@ export function overviewTab(game, read, rangeId, at = S.now()) {
       d1Back: cohorts.filter((c) => c.day + 1 < S.dayOf(at)).reduce((sum, c) => sum + (c.counts.d1 || 0), 0),
       activeSeries, labels: range.labels,
     },
+    range,
+  };
+}
+
+// The Money tab (Tabs.Money): Robux, purchases and payers, each item from prompt to purchase, and where prompts
+// came from. `range` is the loaded range, so money.js can reuse it.
+export function moneyTab(game, read, rangeId, at = S.now(), range = loadRange(game, read, rangeId, '', at)) {
+  const cur = range.index, prev = range.prevIndex;
+  const robux = get(cur, 'robux'), prevRobux = get(prev, 'robux');
+  const payers = get(cur, 'payers'), prevPayers = get(prev, 'payers');
+  const playerDays = get(cur, 'dau'), prevPlayerDays = get(prev, 'dau');
+  const robuxSeries = series(range.slots, 'robux', range.suffix);
+  const prompts = labelsOf(cur, 'prompt');
+  const purchases = labelsOf(cur, 'purchases');
+  const robuxByItem = labelsOf(cur, 'robux');
+  const items = new Set([...Object.keys(prompts), ...Object.keys(purchases)]);
+  const rows = [...items].map((item) => [item, prompts[item] || 0, purchases[item] || 0, ratio(purchases[item] || 0, prompts[item] || 0), robuxByItem[item] || 0]);
+  rows.sort((a, b) => b[4] - a[4]);
+  return {
+    widgets: [
+      tiles([
+        tile('Robux spent', robux, prevRobux, 'robux', robuxSeries),
+        tile('You earn (~70%)', robux * S.DEVELOPER_SHARE, prevRobux * S.DEVELOPER_SHARE, 'robux'),
+        tile('Purchases', get(cur, 'purchases'), get(prev, 'purchases'), 'int', series(range.slots, 'purchases', range.suffix)),
+        tile('Paying player-days', payers, prevPayers, 'int'),
+        tile('Conversion', ratio(payers, playerDays), ratio(prevPayers, prevPlayerDays), 'pct'),
+        tile('Robux / player-day', ratio(robux, playerDays), ratio(prevRobux, prevPlayerDays), 'num'),
+        tile('Robux / payer-day', ratio(robux, payers), ratio(prevRobux, prevPayers), 'num'),
+        tile('First-time buyers', get(cur, 'first_purchase'), get(prev, 'first_purchase'), 'int'),
+      ]),
+      line(read, 'Robux spent', 'robux', range, [
+        { Name: 'This period', Values: robuxSeries },
+        { Name: 'Period before', Values: series(range.prevSlots, 'robux', range.suffix) },
+      ], true),
+      bars('Robux by item', 'robux', robuxByItem, labelsOf(prev, 'robux'), 15),
+      {
+        Type: 'Table',
+        Title: 'Items: prompts to purchases',
+        Columns: [
+          { Name: 'Item', Format: 'text' }, { Name: 'Prompts', Format: 'int' }, { Name: 'Bought', Format: 'int' },
+          { Name: 'Rate', Format: 'pct' }, { Name: 'Robux', Format: 'robux' },
+        ],
+        Rows: rows,
+      },
+      bars('Prompts by where they came from', 'int', labelsOf(cur, 'prompt_src')),
+      bars('Purchases by where the prompt came from', 'int', labelsOf(cur, 'purchase_src')),
+      columns('Minutes played before the first purchase', 'int', S.bucketLabels(S.FIRST_PURCHASE_MINUTES, 'm'), labelsOf(cur, 'first_purchase_min')),
+      bars('Gifts by item', 'int', labelsOf(cur, 'gift')),
+    ],
+    range,
   };
 }
 

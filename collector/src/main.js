@@ -127,7 +127,7 @@ export function main() {
   poller.start();
   views = buildViews(games, db);
 
-  // Housekeeping: the dead-man ping, online samples kept 35 days, the daily backup
+  // Housekeeping: the dead-man ping, online samples and the sales feed kept 35 days, the daily backup
   const timers = [];
   // (health is only "not ok" once a source has had no good read for minutes, so a blip sends no email)
   timers.push(setInterval(() => {
@@ -136,6 +136,7 @@ export function main() {
   }, 60 * 1000));
   timers.push(setInterval(() => {
     db.pruneCcu(S.now() - 35 * 86400);
+    db.pruneSales(S.now() - 35 * 86400);
     try {
       db.backup(path.join(dataDir, 'backups'));
     } catch (error) {
